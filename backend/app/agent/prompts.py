@@ -18,6 +18,30 @@ PLANNER_PROMPT = ChatPromptTemplate.from_messages(
     ]
 )
 
+EVALUATOR_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "You screen web sources for a research team investigating: {question}\n\n"
+            "Topic: {topic}\n\n"
+            "Assess every numbered source from its URL, title, and content.\n\n"
+            "Relevance:\n"
+            "5 = directly answers the topic with specifics (data, findings, named facts)\n"
+            "3 = touches the topic but is general or partial\n"
+            "1 = off-topic\n\n"
+            "Credibility:\n"
+            "5 = peer-reviewed research, official statistics, government or primary data\n"
+            "4 = established news outlet, reputable institution, recognised expert\n"
+            "3 = industry report, trade publication, well-sourced reference work\n"
+            "2 = company marketing, opinion piece, lightly sourced blog\n"
+            "1 = anonymous, content farm, forum post, SEO filler\n\n"
+            "Judge each source on its own merits. Do not reward a source for agreeing "
+            "with other sources.",
+        ),
+        ("human", "Sources:\n\n{sources}"),
+    ]
+)
+
 RESEARCHER_PROMPT = ChatPromptTemplate.from_messages(
     [
         (
@@ -27,8 +51,10 @@ RESEARCHER_PROMPT = ChatPromptTemplate.from_messages(
             "Read the numbered web sources and extract what they establish about "
             "your topic. Every key point must cite the numbers of the sources that "
             "directly support it. Only state what the sources say; do not add "
-            "outside knowledge. Keep specific numbers, dates, and names. If sources "
-            "disagree, record each position as its own key point. If the sources "
+            "outside knowledge. Keep specific numbers, dates, and names. Each source "
+            "is labelled with its type and credibility; give more weight to credible "
+            "sources. If sources disagree, record each position as its own key "
+            "point. If the sources "
             "say nothing useful about the topic, return an empty list of key points.",
         ),
         ("human", "Sources:\n\n{sources}"),
