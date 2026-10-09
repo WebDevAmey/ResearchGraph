@@ -7,7 +7,13 @@ Two kinds of models live here:
   with after validating and resolving the LLM output.
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
+
+SourceType = Literal[
+    "academic", "government", "news", "industry", "reference", "blog", "forum", "other"
+]
 
 # --- LLM output schemas -----------------------------------------------------
 
@@ -27,6 +33,21 @@ class ResearchPlan(BaseModel):
     topics: list[Topic] = Field(
         description="Independent research topics that together cover the question."
     )
+
+
+class SourceAssessment(BaseModel):
+    source_id: int = Field(description="The number of the source being assessed.")
+    relevance: int = Field(description="1-5: how directly the source addresses the topic.")
+    credibility: int = Field(description="1-5: how trustworthy the source is, per the rubric.")
+    source_type: SourceType
+    published_year: int | None = Field(
+        description="Year of publication if stated in the URL or content, otherwise null."
+    )
+    reason: str = Field(description="Under 15 words justifying the scores.")
+
+
+class SourceEvaluation(BaseModel):
+    assessments: list[SourceAssessment] = Field(description="One assessment per source.")
 
 
 class KeyPoint(BaseModel):
@@ -55,11 +76,28 @@ class ReportDraft(BaseModel):
 # --- Domain models ----------------------------------------------------------
 
 
+class Assessment(BaseModel):
+    relevance: int
+    credibility: int
+    source_type: SourceType
+    published_year: int | None = None
+    reason: str
+    quality: float  # 0-1, combines relevance and credibility
+
+    @property
+    def label(self) -> str:
+        parts = [self.source_type, f"credibility {self.credibility}/5"]
+        if self.published_year:
+            parts.append(str(self.published_year))
+        return " · ".join(parts)
+
+
 class Source(BaseModel):
     url: str
     title: str
     content: str
-    score: float = 0.0
+    score: float = 0.0  # the search engine's own relevance score
+    assessment: Assessment | None = None
 
 
 class Finding(BaseModel):
@@ -72,6 +110,7 @@ class TopicResult(BaseModel):
     summary: str = ""
     findings: list[Finding] = Field(default_factory=list)
     sources: list[Source] = Field(default_factory=list)
+    rejected_sources: list[Source] = Field(default_factory=list)
     error: str | None = None
 
 
@@ -79,6 +118,7 @@ class CitedSource(BaseModel):
     id: int
     url: str
     title: str
+    assessment: Assessment | None = None
 
 
 class Report(ReportDraft):
@@ -86,7 +126,10 @@ class Report(ReportDraft):
 
     def to_markdown(self) -> str:
         findings = "\n".join(f"- {f}" for f in self.key_findings)
-        sources = "\n".join(f"[{s.id}] {s.title} — {s.url}" for s in self.sources)
+        sources = "\n".join(
+            f"[{s.id}] {s.title} — {s.url}" + (f" ({s.assessment.label})" if s.assessment else "")
+            for s in self.sources
+        )
         return (
             f"# {self.title}\n\n"
             f"## Executive Summary\n\n{self.executive_summary}\n\n"
