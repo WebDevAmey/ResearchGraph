@@ -28,7 +28,10 @@ async def synthesize_report(state: ResearchState, runtime: Runtime[AgentContext]
         {
             "question": state["question"],
             "evidence": format_evidence(results, registry),
-            "sources": "\n".join(f"[{s.id}] {s.title} ({s.url})" for s in registry.all()),
+            "sources": "\n".join(
+                f"[{s.id}] {s.title} ({s.url})" + (f" — {s.assessment.label}" if s.assessment else "")
+                for s in registry.all()
+            ),
         },
         ReportDraft,
     )

@@ -19,7 +19,10 @@ class SourceRegistry:
     def register(self, source: Source) -> int:
         if source.url not in self._by_url:
             self._by_url[source.url] = CitedSource(
-                id=len(self._by_url) + 1, url=source.url, title=source.title
+                id=len(self._by_url) + 1,
+                url=source.url,
+                title=source.title,
+                assessment=source.assessment,
             )
         return self._by_url[source.url].id
 
