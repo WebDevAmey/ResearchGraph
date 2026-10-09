@@ -22,13 +22,13 @@ cp .env.example .env        # add ANTHROPIC_API_KEY and TAVILY_API_KEY
 backend/app/
   config.py            settings from env / .env
   agent/
-    graph.py           the LangGraph wiring
+    graph.py           parent graph + per-topic research subgraph
     state.py           shared state + reducers
     context.py         injected dependencies (LLM, search)
     schemas.py         LLM output schemas + domain models
     prompts.py         LangChain prompt templates
     citations.py       source numbering + citation validation
-    nodes/             planner, researcher, synthesizer
+    nodes/             planner, researcher, evaluator, synthesizer
   services/
     llm.py             StructuredLLM port + Claude adapter
     search.py          SearchClient port + Tavily adapter
