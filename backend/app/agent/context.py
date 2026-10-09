@@ -17,6 +17,7 @@ class AgentContext:
     llm: StructuredLLM
     search: SearchClient
     max_topics: int = 5
+    max_sources_per_topic: int = 6
 
 
 def context_from_settings(settings: Settings) -> AgentContext:
@@ -24,4 +25,5 @@ def context_from_settings(settings: Settings) -> AgentContext:
         llm=ClaudeLLM(settings),
         search=TavilySearchClient(settings.tavily_api_key, settings.results_per_query),
         max_topics=settings.max_topics,
+        max_sources_per_topic=settings.max_sources_per_topic,
     )

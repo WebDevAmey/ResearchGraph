@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     max_topics: int = 5
     results_per_query: int = 5
+    max_sources_per_topic: int = 6
 
 
 @lru_cache
