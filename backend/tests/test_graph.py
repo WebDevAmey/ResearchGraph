@@ -7,10 +7,11 @@ from app.agent.schemas import (
     KeyPoint,
     ReportDraft,
     ResearchPlan,
+    SourceEvaluation,
     Topic,
     TopicAnalysis,
 )
-from tests.fakes import FakeLLM, FakeSearch, source
+from tests.fakes import APPROVE_ALL, FakeLLM, FakeSearch, source
 
 QUESTION = "Does remote work affect productivity?"
 
@@ -40,11 +41,16 @@ DRAFT = ReportDraft(
 )
 
 
+DEFAULT_RESPONSES = {
+    ResearchPlan: PLAN,
+    SourceEvaluation: APPROVE_ALL,
+    TopicAnalysis: ANALYSIS,
+    ReportDraft: DRAFT,
+}
+
+
 def make_context(search_results, llm_responses=None, max_topics=5):
-    llm = FakeLLM(
-        llm_responses
-        or {ResearchPlan: PLAN, TopicAnalysis: ANALYSIS, ReportDraft: DRAFT}
-    )
+    llm = FakeLLM({**DEFAULT_RESPONSES, **(llm_responses or {})})
     search = FakeSearch(search_results)
     return AgentContext(llm=llm, search=search, max_topics=max_topics), llm, search
 
@@ -103,10 +109,7 @@ async def test_plan_is_capped_at_max_topics():
 
 async def test_empty_plan_falls_back_to_the_question_itself():
     empty = ResearchPlan(understanding="?", topics=[])
-    context, _, _ = make_context(
-        {QUESTION: [source(1)]},
-        {ResearchPlan: empty, TopicAnalysis: ANALYSIS, ReportDraft: DRAFT},
-    )
+    context, _, _ = make_context({QUESTION: [source(1)]}, {ResearchPlan: empty})
     state = await run(context)
     assert state["plan"].topics[0].search_queries == [QUESTION]
     assert "report" in state

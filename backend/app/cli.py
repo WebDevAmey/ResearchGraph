@@ -36,10 +36,12 @@ async def run(question: str, out: Path | None) -> int:
                         print(f"  · {topic.title}")
                 elif node == "research_topic":
                     result = data["topic_results"][0]
+                    reviewed = len(result.sources) + len(result.rejected_sources)
                     status = (
                         f"✗ {result.error}"
                         if result.error
-                        else f"{len(result.findings)} findings, {len(result.sources)} sources"
+                        else f"{len(result.findings)} findings from "
+                        f"{len(result.sources)}/{reviewed} sources that passed review"
                     )
                     print(f"✓ Researched '{result.topic.title}': {status}")
                 elif node == "synthesize_report":
