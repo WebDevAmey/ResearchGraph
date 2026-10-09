@@ -7,10 +7,19 @@ from app.config import Settings
 from app.services.llm import ClaudeLLM
 
 
-def payload_for(settings: Settings) -> dict:
+def payload_for(settings: Settings, effort=None) -> dict:
     llm = ClaudeLLM(settings)
-    bound = llm.structured(ResearchPlan).first  # the model with structured-output kwargs bound
+    bound = llm.structured(ResearchPlan, effort).first  # model with structured-output kwargs
     return bound.bound._get_request_payload([HumanMessage("hi")], **bound.kwargs)
+
+
+def test_per_call_effort_override():
+    settings = Settings(anthropic_api_key="test", claude_effort="medium")
+    assert payload_for(settings)["output_config"]["effort"] == "medium"
+    low = payload_for(settings, effort="low")
+    assert low["output_config"]["effort"] == "low"
+    assert low["output_config"]["format"]["type"] == "json_schema"
+    assert low["fallbacks"] == "default"
 
 
 def test_payload_uses_native_structured_output_and_effort():

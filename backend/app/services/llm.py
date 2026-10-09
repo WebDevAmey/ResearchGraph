@@ -12,15 +12,23 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel
 
-from app.config import Settings
+from app.config import Effort, Settings
 
 T = TypeVar("T", bound=BaseModel)
 
 
 class StructuredLLM(Protocol):
     async def generate(
-        self, prompt: ChatPromptTemplate, variables: dict[str, Any], schema: type[T]
-    ) -> T: ...
+        self,
+        prompt: ChatPromptTemplate,
+        variables: dict[str, Any],
+        schema: type[T],
+        *,
+        effort: Effort | None = None,
+    ) -> T:
+        """`effort` overrides the default for this call: use `low` for simple
+        judgments, leave unset for reasoning-heavy steps."""
+        ...
 
 
 def build_chat_model(settings: Settings) -> ChatAnthropic:
@@ -47,18 +55,25 @@ def build_chat_model(settings: Settings) -> ChatAnthropic:
 class ClaudeLLM:
     def __init__(self, settings: Settings) -> None:
         self._model = build_chat_model(settings)
-        self._structured: dict[type[BaseModel], Runnable] = {}
+        self._structured: dict[tuple[type[BaseModel], Effort | None], Runnable] = {}
 
-    def structured(self, schema: type[T]) -> Runnable:
-        # `json_schema` uses Claude's native structured outputs. The default
-        # `function_calling` method forces a tool call, which current models reject.
-        if schema not in self._structured:
-            self._structured[schema] = self._model.with_structured_output(
-                schema, method="json_schema"
-            )
-        return self._structured[schema]
+    def structured(self, schema: type[T], effort: Effort | None = None) -> Runnable:
+        key = (schema, effort)
+        if key not in self._structured:
+            model = self._model
+            if effort is not None:
+                model = model.model_copy(update={"output_config": {"effort": effort}})
+            # `json_schema` uses Claude's native structured outputs. The default
+            # `function_calling` method forces a tool call, which current models reject.
+            self._structured[key] = model.with_structured_output(schema, method="json_schema")
+        return self._structured[key]
 
     async def generate(
-        self, prompt: ChatPromptTemplate, variables: dict[str, Any], schema: type[T]
+        self,
+        prompt: ChatPromptTemplate,
+        variables: dict[str, Any],
+        schema: type[T],
+        *,
+        effort: Effort | None = None,
     ) -> T:
-        return await (prompt | self.structured(schema)).ainvoke(variables)
+        return await (prompt | self.structured(schema, effort)).ainvoke(variables)
