@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     results_per_query: int = 5
     max_sources_per_topic: int = 6
 
+    # API
+    database_path: str = "researchgraph.db"
+    cors_origins: list[str] = ["http://localhost:3000"]
+    max_concurrent_runs: int = 3
     # Scripted LLM + search with placeholder data: explore the UI without API keys.
     demo_mode: bool = False
 
