@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     results_per_query: int = 5
     max_sources_per_topic: int = 6
 
+    # Scripted LLM + search with placeholder data: explore the UI without API keys.
+    demo_mode: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:
