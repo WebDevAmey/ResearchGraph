@@ -9,6 +9,7 @@ import logging
 from langgraph.runtime import Runtime
 
 from app.agent.context import AgentContext
+from app.agent.events import emit, source_payload
 from app.agent.prompts import EVALUATOR_PROMPT
 from app.agent.schemas import Assessment, Source, SourceAssessment, SourceEvaluation
 from app.agent.state import TopicState
@@ -22,7 +23,18 @@ CREDIBILITY_WEIGHT = 0.4
 
 
 async def evaluate_sources(state: TopicState, runtime: Runtime[AgentContext]) -> dict:
-    ctx = runtime.context
+    update = await _evaluate(state, runtime.context)
+    emit(
+        runtime,
+        "sources_evaluated",
+        topic_id=state["topic_id"],
+        kept=[source_payload(s) for s in update["sources"]],
+        rejected=len(update["rejected"]),
+    )
+    return update
+
+
+async def _evaluate(state: TopicState, ctx: AgentContext) -> dict:
     candidates = [s for s in state["candidates"] if s.content.strip()]
     try:
         evaluation = await ctx.llm.generate(

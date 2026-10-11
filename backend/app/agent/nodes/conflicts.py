@@ -11,6 +11,7 @@ import logging
 from langgraph.runtime import Runtime
 
 from app.agent.context import AgentContext
+from app.agent.events import emit
 from app.agent.prompts import CONFLICT_PROMPT
 from app.agent.schemas import Conflict, ConflictAnalysis, Evidence, Position
 from app.agent.state import ResearchState
@@ -24,6 +25,7 @@ async def detect_conflicts(state: ResearchState, runtime: Runtime[AgentContext])
     if len(evidence) < 2 or len(distinct_sources) < 2:
         return {"conflicts": []}  # nothing to compare
 
+    emit(runtime, "conflicts_started")
     try:
         analysis = await runtime.context.llm.generate(
             CONFLICT_PROMPT,
@@ -36,6 +38,7 @@ async def detect_conflicts(state: ResearchState, runtime: Runtime[AgentContext])
         logger.exception("Conflict detection failed")
         conflicts = []
 
+    emit(runtime, "conflicts_ready", count=len(conflicts))
     return {"conflicts": conflicts}
 
 

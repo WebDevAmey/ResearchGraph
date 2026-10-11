@@ -7,6 +7,7 @@ marker the model invented, so every citation in the report resolves.
 
 import re
 
+from app.agent.events import SNIPPET_CHARS
 from app.agent.schemas import CitedSource, Source
 
 _MARKER = re.compile(r"\[(\d+(?:\s*,\s*\d+)*)\]")
@@ -22,6 +23,8 @@ class SourceRegistry:
                 id=len(self._by_url) + 1,
                 url=source.url,
                 title=source.title,
+                domain=source.domain,
+                snippet=source.content[:SNIPPET_CHARS],
                 assessment=source.assessment,
             )
         return self._by_url[source.url].id

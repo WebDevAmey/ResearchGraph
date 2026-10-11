@@ -6,6 +6,7 @@ import logging
 from langgraph.runtime import Runtime
 
 from app.agent.context import AgentContext
+from app.agent.events import emit
 from app.agent.evidence import resolve_evidence
 from app.agent.prompts import RESEARCHER_PROMPT
 from app.agent.schemas import Source, TopicAnalysis, TopicResult
@@ -16,7 +17,9 @@ logger = logging.getLogger(__name__)
 
 
 async def search_sources(state: TopicState, runtime: Runtime[AgentContext]) -> dict:
+    emit(runtime, "topic_started", topic_id=state["topic_id"])
     candidates = await gather_sources(runtime.context.search, state["topic"].search_queries)
+    emit(runtime, "sources_found", topic_id=state["topic_id"], count=len(candidates))
     if not candidates:
         return {"candidates": [], "error": "No sources found."}
     return {"candidates": candidates}
@@ -42,15 +45,24 @@ async def analyze_topic(state: TopicState, runtime: Runtime[AgentContext]) -> di
     return {"summary": analysis.summary, "evidence": resolve_evidence(analysis, sources)}
 
 
-def finalize_topic(state: TopicState) -> dict:
+def finalize_topic(state: TopicState, runtime: Runtime[AgentContext]) -> dict:
     """The subgraph's single exit: package local working state into a result."""
     result = TopicResult(
+        topic_id=state["topic_id"],
         topic=state["topic"],
         summary=state.get("summary", ""),
         evidence=state.get("evidence", []),
         sources=state.get("sources", []),
         rejected_sources=state.get("rejected", []),
         error=state.get("error"),
+    )
+    emit(
+        runtime,
+        "topic_completed",
+        topic_id=result.topic_id,
+        summary=result.summary,
+        evidence_count=len(result.evidence),
+        error=result.error,
     )
     return {"topic_results": [result]}
 

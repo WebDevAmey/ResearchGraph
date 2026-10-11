@@ -43,6 +43,7 @@ class TopicTask(TypedDict):
     """Input for one research branch (sent via `Send`)."""
 
     question: str
+    topic_id: str
     topic: Topic
 
 

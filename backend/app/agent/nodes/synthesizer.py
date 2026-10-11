@@ -2,6 +2,7 @@ from langgraph.runtime import Runtime
 
 from app.agent.citations import SourceRegistry, cited_ids, sanitize
 from app.agent.context import AgentContext
+from app.agent.events import SNIPPET_CHARS, emit
 from app.agent.prompts import SYNTHESIZER_PROMPT
 from app.agent.schemas import (
     CitedPosition,
@@ -33,6 +34,7 @@ async def synthesize_report(state: ResearchState, runtime: Runtime[AgentContext]
             "No usable evidence was found for this question. Try rephrasing it."
         )
 
+    emit(runtime, "synthesis_started")
     registry = SourceRegistry()
     for result in results:
         for source in result.sources:

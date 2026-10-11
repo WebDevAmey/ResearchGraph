@@ -8,8 +8,9 @@ Two kinds of models live here:
 """
 
 from typing import Literal
+from urllib.parse import urlparse
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 SourceType = Literal[
     "academic", "government", "news", "industry", "reference", "blog", "forum", "other"
@@ -130,6 +131,11 @@ class Source(BaseModel):
     score: float = 0.0  # the search engine's own relevance score
     assessment: Assessment | None = None
 
+    @computed_field
+    @property
+    def domain(self) -> str:
+        return urlparse(self.url).netloc.removeprefix("www.")
+
 
 class Evidence(BaseModel):
     statement: str
@@ -139,6 +145,7 @@ class Evidence(BaseModel):
 
 
 class TopicResult(BaseModel):
+    topic_id: str
     topic: Topic
     summary: str = ""
     evidence: list[Evidence] = Field(default_factory=list)
@@ -163,6 +170,8 @@ class CitedSource(BaseModel):
     id: int
     url: str
     title: str
+    domain: str
+    snippet: str = ""
     assessment: Assessment | None = None
 
 
