@@ -3,7 +3,7 @@
 Parent graph:
 
     START → plan_research ─┬─► research_topic ─┐
-                           ├─► research_topic ─┼─► synthesize_report → END
+                           ├─► research_topic ─┼─► detect_conflicts → synthesize_report → END
                            └─► research_topic ─┘
                      (one branch per topic, via Send)
 
@@ -17,6 +17,7 @@ Each `research_topic` branch is a subgraph:
 from langgraph.graph import END, START, StateGraph
 
 from app.agent.context import AgentContext
+from app.agent.nodes.conflicts import detect_conflicts
 from app.agent.nodes.evaluator import evaluate_sources
 from app.agent.nodes.planner import dispatch_research, plan_research
 from app.agent.nodes.researcher import analyze_topic, finalize_topic, search_sources
@@ -56,11 +57,13 @@ def build_graph():
 
     builder.add_node("plan_research", plan_research)
     builder.add_node("research_topic", build_research_subgraph())
+    builder.add_node("detect_conflicts", detect_conflicts)
     builder.add_node("synthesize_report", synthesize_report)
 
     builder.add_edge(START, "plan_research")
     builder.add_conditional_edges("plan_research", dispatch_research, ["research_topic"])
-    builder.add_edge("research_topic", "synthesize_report")
+    builder.add_edge("research_topic", "detect_conflicts")
+    builder.add_edge("detect_conflicts", "synthesize_report")
     builder.add_edge("synthesize_report", END)
 
     return builder.compile()

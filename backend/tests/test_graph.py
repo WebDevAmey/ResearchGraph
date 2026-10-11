@@ -4,6 +4,7 @@ from app.agent.context import AgentContext
 from app.agent.graph import build_graph
 from app.agent.nodes.synthesizer import InsufficientEvidenceError
 from app.agent.schemas import (
+    ConflictAnalysis,
     KeyPoint,
     ReportDraft,
     ResearchPlan,
@@ -26,8 +27,8 @@ PLAN = ResearchPlan(
 ANALYSIS = TopicAnalysis(
     summary="Sources broadly agree.",
     key_points=[
-        KeyPoint(statement="Supported claim", source_ids=[1]),
-        KeyPoint(statement="Claim citing a non-existent source", source_ids=[42]),
+        KeyPoint(statement="Supported claim", quote="Content 1", source_ids=[1]),
+        KeyPoint(statement="Claim citing a non-existent source", quote="x", source_ids=[42]),
     ],
 )
 
@@ -36,6 +37,7 @@ DRAFT = ReportDraft(
     executive_summary="Mixed evidence [1][2].",
     key_findings=["Finding [1]", "Invented citation [99]"],
     detailed_analysis="### Theme\nDetail [2].",
+    conflicting_evidence="None.",
     limitations="Few long-term studies.",
     conclusion="It depends [1].",
 )
@@ -45,6 +47,7 @@ DEFAULT_RESPONSES = {
     ResearchPlan: PLAN,
     SourceEvaluation: APPROVE_ALL,
     TopicAnalysis: ANALYSIS,
+    ConflictAnalysis: ConflictAnalysis(conflicts=[]),
     ReportDraft: DRAFT,
 }
 
@@ -86,7 +89,7 @@ async def test_uncited_claims_are_dropped_and_duplicate_sources_merged():
     context, _, _ = make_context({"q1": [source(1), source(2)], "q2": [source(2)], "q3": [source(3)]})
     state = await run(context)
     studies = next(r for r in state["topic_results"] if r.topic.title == "Output studies")
-    assert [f.statement for f in studies.findings] == ["Supported claim"]
+    assert [e.statement for e in studies.evidence] == ["Supported claim"]
     assert len(studies.sources) == 2
 
 

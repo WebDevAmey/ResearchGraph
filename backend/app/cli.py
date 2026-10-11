@@ -40,10 +40,12 @@ async def run(question: str, out: Path | None) -> int:
                     status = (
                         f"✗ {result.error}"
                         if result.error
-                        else f"{len(result.findings)} findings from "
+                        else f"{len(result.evidence)} evidence items from "
                         f"{len(result.sources)}/{reviewed} sources that passed review"
                     )
                     print(f"✓ Researched '{result.topic.title}': {status}")
+                elif node == "detect_conflicts":
+                    print(f"✓ Cross-checked evidence: {len(data['conflicts'])} conflicts found")
                 elif node == "synthesize_report":
                     report = data["report"]
                     print("✓ Report written\n")

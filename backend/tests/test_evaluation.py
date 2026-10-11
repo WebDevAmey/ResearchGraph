@@ -2,6 +2,7 @@ from app.agent.context import AgentContext
 from app.agent.graph import build_graph
 from app.agent.nodes.evaluator import select_sources
 from app.agent.schemas import (
+    ConflictAnalysis,
     KeyPoint,
     ReportDraft,
     ResearchPlan,
@@ -59,12 +60,13 @@ PLAN = ResearchPlan(
         Topic(title="B", question="qb", search_queries=["b"]),
     ],
 )
-ANALYSIS = TopicAnalysis(summary="s", key_points=[KeyPoint(statement="claim", source_ids=[1])])
+ANALYSIS = TopicAnalysis(summary="s", key_points=[KeyPoint(statement="claim", quote="Content", source_ids=[1])])
 DRAFT = ReportDraft(
     title="t",
     executive_summary="e [1]",
     key_findings=["f [1]"],
     detailed_analysis="d",
+    conflicting_evidence="none",
     limitations="l",
     conclusion="c",
 )
@@ -76,6 +78,7 @@ def run_with(evaluation, search_results):
             ResearchPlan: PLAN,
             SourceEvaluation: evaluation,
             TopicAnalysis: ANALYSIS,
+            ConflictAnalysis: ConflictAnalysis(conflicts=[]),
             ReportDraft: DRAFT,
         }
     )

@@ -6,8 +6,9 @@ import logging
 from langgraph.runtime import Runtime
 
 from app.agent.context import AgentContext
+from app.agent.evidence import resolve_evidence
 from app.agent.prompts import RESEARCHER_PROMPT
-from app.agent.schemas import Finding, Source, TopicAnalysis, TopicResult
+from app.agent.schemas import Source, TopicAnalysis, TopicResult
 from app.agent.state import TopicState
 from app.services.search import SearchClient
 
@@ -38,7 +39,7 @@ async def analyze_topic(state: TopicState, runtime: Runtime[AgentContext]) -> di
         # works with whatever the other branches found.
         logger.exception("Analysis failed for topic %r", state["topic"].title)
         return {"error": str(exc)}
-    return {"summary": analysis.summary, "findings": resolve_findings(analysis, sources)}
+    return {"summary": analysis.summary, "evidence": resolve_evidence(analysis, sources)}
 
 
 def finalize_topic(state: TopicState) -> dict:
@@ -46,7 +47,7 @@ def finalize_topic(state: TopicState) -> dict:
     result = TopicResult(
         topic=state["topic"],
         summary=state.get("summary", ""),
-        findings=state.get("findings", []),
+        evidence=state.get("evidence", []),
         sources=state.get("sources", []),
         rejected_sources=state.get("rejected", []),
         error=state.get("error"),
@@ -74,15 +75,3 @@ def format_sources(sources: list[Source]) -> str:
         + f"\nURL: {s.url}\n{s.content}"
         for i, s in enumerate(sources, start=1)
     )
-
-
-def resolve_findings(analysis: TopicAnalysis, sources: list[Source]) -> list[Finding]:
-    """Map the model's local source numbers back to URLs; drop uncited claims."""
-    findings = []
-    for point in analysis.key_points:
-        urls = list(
-            dict.fromkeys(sources[i - 1].url for i in point.source_ids if 1 <= i <= len(sources))
-        )
-        if urls:
-            findings.append(Finding(statement=point.statement, source_urls=urls))
-    return findings

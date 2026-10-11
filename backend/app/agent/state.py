@@ -10,7 +10,15 @@ LangGraph merges updates into the state using each key's reducer:
 import operator
 from typing import Annotated, TypedDict
 
-from app.agent.schemas import Finding, Report, ResearchPlan, Source, Topic, TopicResult
+from app.agent.schemas import (
+    Conflict,
+    Evidence,
+    Report,
+    ResearchPlan,
+    Source,
+    Topic,
+    TopicResult,
+)
 
 TopicResults = Annotated[list[TopicResult], operator.add]
 
@@ -22,6 +30,7 @@ class ResearchInput(TypedDict):
 class ResearchState(ResearchInput, total=False):
     plan: ResearchPlan
     topic_results: TopicResults
+    conflicts: list[Conflict]
     report: Report
 
 
@@ -42,7 +51,7 @@ class TopicState(TopicTask, total=False):
     sources: list[Source]  # passed evaluation, best first
     rejected: list[Source]
     summary: str
-    findings: list[Finding]
+    evidence: list[Evidence]
     error: str
     topic_results: TopicResults
 

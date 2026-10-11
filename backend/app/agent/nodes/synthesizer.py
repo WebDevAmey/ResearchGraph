@@ -3,8 +3,23 @@ from langgraph.runtime import Runtime
 from app.agent.citations import SourceRegistry, cited_ids, sanitize
 from app.agent.context import AgentContext
 from app.agent.prompts import SYNTHESIZER_PROMPT
-from app.agent.schemas import Report, ReportDraft, TopicResult
+from app.agent.schemas import (
+    CitedPosition,
+    Conflict,
+    Report,
+    ReportConflict,
+    ReportDraft,
+    TopicResult,
+)
 from app.agent.state import ResearchState
+
+_TEXT_FIELDS = (
+    "executive_summary",
+    "detailed_analysis",
+    "conflicting_evidence",
+    "limitations",
+    "conclusion",
+)
 
 
 class InsufficientEvidenceError(Exception):
@@ -12,7 +27,7 @@ class InsufficientEvidenceError(Exception):
 
 
 async def synthesize_report(state: ResearchState, runtime: Runtime[AgentContext]) -> dict:
-    results = [r for r in state.get("topic_results", []) if r.findings]
+    results = [r for r in state.get("topic_results", []) if r.evidence]
     if not results:
         raise InsufficientEvidenceError(
             "No usable evidence was found for this question. Try rephrasing it."
@@ -22,12 +37,14 @@ async def synthesize_report(state: ResearchState, runtime: Runtime[AgentContext]
     for result in results:
         for source in result.sources:
             registry.register(source)
+    conflicts = state.get("conflicts", [])
 
     draft = await runtime.context.llm.generate(
         SYNTHESIZER_PROMPT,
         {
             "question": state["question"],
             "evidence": format_evidence(results, registry),
+            "conflicts": format_conflicts(conflicts, registry) or "None identified.",
             "sources": "\n".join(
                 f"[{s.id}] {s.title} ({s.url})" + (f" — {s.assessment.label}" if s.assessment else "")
                 for s in registry.all()
@@ -35,40 +52,57 @@ async def synthesize_report(state: ResearchState, runtime: Runtime[AgentContext]
         },
         ReportDraft,
     )
-    return {"report": build_report(draft, registry)}
+    return {"report": build_report(draft, registry, conflicts)}
 
 
 def format_evidence(results: list[TopicResult], registry: SourceRegistry) -> str:
     blocks = []
     for result in results:
         lines = [f"## {result.topic.title}", result.summary]
-        for finding in result.findings:
-            markers = "".join(f"[{registry.id_for(url)}]" for url in finding.source_urls)
-            lines.append(f"- {finding.statement} {markers}")
+        for e in result.evidence:
+            markers = "".join(f"[{registry.id_for(url)}]" for url in e.source_urls)
+            flag = "" if e.quote_verified else " [unverified]"
+            lines.append(f"- {e.statement} {markers}{flag}")
         blocks.append("\n".join(lines))
     return "\n\n".join(blocks)
 
 
-def build_report(draft: ReportDraft, registry: SourceRegistry) -> Report:
+def format_conflicts(conflicts: list[Conflict], registry: SourceRegistry) -> str:
+    blocks = []
+    for i, c in enumerate(conflicts, start=1):
+        sides = "\n".join(
+            f"   - {p.stance} " + "".join(f"[{registry.id_for(u)}]" for u in p.source_urls)
+            for p in c.positions
+        )
+        blocks.append(f"{i}. {c.question}\n{sides}\n   Why: {c.explanation}\n   Verdict: {c.verdict}")
+    return "\n".join(blocks)
+
+
+def build_report(draft: ReportDraft, registry: SourceRegistry, conflicts: list[Conflict]) -> Report:
     """Strip invented citations, then keep only the sources the report cites."""
     valid = {s.id for s in registry.all()}
     clean = draft.model_copy(
         update={
-            "executive_summary": sanitize(draft.executive_summary, valid),
+            **{f: sanitize(getattr(draft, f), valid) for f in _TEXT_FIELDS},
             "key_findings": [sanitize(f, valid) for f in draft.key_findings],
-            "detailed_analysis": sanitize(draft.detailed_analysis, valid),
-            "limitations": sanitize(draft.limitations, valid),
-            "conclusion": sanitize(draft.conclusion, valid),
         }
     )
-    used = cited_ids(
-        clean.executive_summary,
-        *clean.key_findings,
-        clean.detailed_analysis,
-        clean.limitations,
-        clean.conclusion,
-    )
+    report_conflicts = [
+        ReportConflict(
+            question=c.question,
+            positions=[
+                CitedPosition(stance=p.stance, source_ids=[registry.id_for(u) for u in p.source_urls])
+                for p in c.positions
+            ],
+            explanation=c.explanation,
+            verdict=c.verdict,
+        )
+        for c in conflicts
+    ]
+    used = cited_ids(*(getattr(clean, f) for f in _TEXT_FIELDS), *clean.key_findings)
+    used |= {i for c in report_conflicts for p in c.positions for i in p.source_ids}
     return Report(
         **clean.model_dump(),
         sources=[s for s in registry.all() if s.id in used],
+        conflicts=report_conflicts,
     )

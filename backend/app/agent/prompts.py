@@ -51,13 +51,32 @@ RESEARCHER_PROMPT = ChatPromptTemplate.from_messages(
             "Read the numbered web sources and extract what they establish about "
             "your topic. Every key point must cite the numbers of the sources that "
             "directly support it. Only state what the sources say; do not add "
-            "outside knowledge. Keep specific numbers, dates, and names. Each source "
-            "is labelled with its type and credibility; give more weight to credible "
-            "sources. If sources disagree, record each position as its own key "
-            "point. If the sources "
-            "say nothing useful about the topic, return an empty list of key points.",
+            "outside knowledge. Each key point needs a short verbatim quote from the "
+            "first source it cites, copied exactly. Keep specific numbers, dates, and "
+            "names. Each source is labelled with its type and credibility; give more "
+            "weight to credible sources. If sources disagree, record each position as "
+            "its own key point. If the sources say nothing useful about the topic, "
+            "return an empty list of key points.",
         ),
         ("human", "Sources:\n\n{sources}"),
+    ]
+)
+
+CONFLICT_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "You cross-check evidence gathered by a research team investigating: "
+            "{question}\n\n"
+            "Find genuine disagreements: places where numbered evidence items make "
+            "incompatible claims about the same thing. Differences in emphasis, scope, "
+            "or detail are not conflicts. For each conflict, group the evidence into "
+            "sides, explain why the evidence diverges, and judge which side the weight "
+            "of evidence favours. Items marked [unverified] have quotes that could not "
+            "be matched to their source; trust them less. Return an empty list if the "
+            "evidence is consistent; do not manufacture conflicts.",
+        ),
+        ("human", "Evidence:\n\n{evidence}"),
     ]
 )
 
@@ -74,8 +93,15 @@ SYNTHESIZER_PROMPT = ChatPromptTemplate.from_messages(
             "same markers, e.g. [2] or [2][5]. Never invent a source number.\n"
             "- Answer the question directly; lead with the conclusion.\n"
             "- Weigh the evidence: say where it is strong, thin, or contested.\n"
+            "- Use the identified conflicts for the Conflicting Evidence section.\n"
+            "- Treat claims marked [unverified] with caution.\n"
             "- Write for an informed reader: precise, plain, no filler.",
         ),
-        ("human", "Evidence by topic:\n\n{evidence}\n\nSource list:\n\n{sources}"),
+        (
+            "human",
+            "Evidence by topic:\n\n{evidence}\n\n"
+            "Identified conflicts:\n\n{conflicts}\n\n"
+            "Source list:\n\n{sources}",
+        ),
     ]
 )
