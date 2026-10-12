@@ -35,7 +35,8 @@ _TOPICS = [
     ("Counter-evidence", "What evidence points the other way?"),
     ("Recent developments", "What has changed in the last two years?"),
 ]
-_TYPES = ["academic", "government", "news", "industry", "blog"]
+_TYPES = ["government", "news", "industry", "blog"]
+_LABEL = {"web": "web page", "academic": "paper", "reference": "encyclopedia entry"}
 _DELAYS = {
     ResearchPlan: 1.6,
     SourceEvaluation: 1.2,
@@ -50,18 +51,25 @@ class DemoSearch:
         await asyncio.sleep(random.uniform(0.6, 1.4))
         # Unique per query so topics don't share (and de-duplicate) the same URLs.
         slug = hashlib.sha1(query.encode()).hexdigest()[:10]
+        # A realistic mix: three web pages, a paper with metadata, an encyclopedia entry.
+        kinds = ["web", "web", "academic", "web", "reference"]
         return [
             Source(
                 url=f"https://example.com/demo/{slug}/{i}",
-                title=f"Sample source {i}: {query[:60]}",
+                title=f"Sample {_LABEL[kind]} {i}: {query[:60]}",
                 content=(
-                    f"This is placeholder text standing in for a real web page about {query}. "
-                    f"In a live run it would contain the page's extracted content. "
+                    f"This is placeholder text standing in for a real {_LABEL[kind]} about "
+                    f"{query}. In a live run it would contain the extracted content. "
                     f"Sample finding {i}: the measured effect was moderate in the groups studied."
                 ),
                 score=round(random.uniform(0.4, 0.95), 2),
+                provider=kind,
+                published_year=random.choice([2022, 2024, 2025]) if kind == "academic" else None,
+                authors=["A. Example", "B. Sample"] if kind == "academic" else [],
+                venue="Journal of Demo Studies" if kind == "academic" else None,
+                citations=random.randint(3, 240) if kind == "academic" else None,
             )
-            for i in range(1, 6)
+            for i, kind in enumerate(kinds, start=1)
         ]
 
 
@@ -82,6 +90,7 @@ def _plan(v: dict) -> ResearchPlan:
     q = v["question"]
     return ResearchPlan(
         understanding=f"Demo run: a sample investigation of “{q}”.",
+        time_sensitive=False,
         topics=[
             Topic(title=title, question=question, search_queries=[f"{q} {title.lower()}"])
             for title, question in _TOPICS

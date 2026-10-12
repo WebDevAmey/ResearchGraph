@@ -17,7 +17,7 @@ from tests.fakes import APPROVE_ALL, FakeLLM, FakeSearch, source
 QUESTION = "Does remote work affect productivity?"
 
 PLAN = ResearchPlan(
-    understanding="Effect of remote work on productivity.",
+    time_sensitive=False, understanding="Effect of remote work on productivity.",
     topics=[
         Topic(title="Output studies", question="What do studies find?", search_queries=["q1", "q2"]),
         Topic(title="Employer views", question="What do employers report?", search_queries=["q3"]),
@@ -111,7 +111,7 @@ async def test_plan_is_capped_at_max_topics():
 
 
 async def test_empty_plan_falls_back_to_the_question_itself():
-    empty = ResearchPlan(understanding="?", topics=[])
+    empty = ResearchPlan(time_sensitive=False, understanding="?", topics=[])
     context, _, _ = make_context({QUESTION: [source(1)]}, {ResearchPlan: empty})
     state = await run(context)
     assert state["plan"].topics[0].search_queries == [QUESTION]

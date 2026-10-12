@@ -3,7 +3,8 @@
 import { ArrowUpRight } from "lucide-react";
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 
-import { CredibilityMeter, sourceTypeLabel } from "@/components/research/credibility";
+import { CredibilityMeter } from "@/components/research/credibility";
+import { paperByline, ProviderBadge, sourceOrigin } from "@/components/research/source-meta";
 import { SourceFavicon } from "@/components/research/source-favicon";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card";
 import type { CitedSource } from "@/lib/types";
@@ -76,15 +77,16 @@ export function Citation({ id }: { id: number }) {
         <div className="space-y-2 p-3.5">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <SourceFavicon domain={source.domain} />
-            <span className="truncate">{source.domain}</span>
-            {source.assessment && (
-              <span className="ml-auto flex items-center gap-2">
-                <span>{sourceTypeLabel(source.assessment.source_type)}</span>
-                <CredibilityMeter assessment={source.assessment} />
-              </span>
-            )}
+            <span className="truncate">{sourceOrigin(source)}</span>
+            <span className="ml-auto flex shrink-0 items-center gap-2">
+              <ProviderBadge provider={source.provider} />
+              {source.assessment && <CredibilityMeter assessment={source.assessment} />}
+            </span>
           </div>
           <p className="text-sm font-medium leading-snug">{source.title}</p>
+          {paperByline(source) && (
+            <p className="text-xs text-muted-foreground tabular-nums">{paperByline(source)}</p>
+          )}
           {source.snippet && (
             <p className="line-clamp-3 text-xs leading-relaxed text-muted-foreground">
               {source.snippet}

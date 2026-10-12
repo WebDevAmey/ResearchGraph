@@ -8,14 +8,20 @@ const card = (n: number): SourceCard => ({
   title: `Source ${n}`,
   domain: "example.com",
   snippet: "",
+  provider: "web",
+  published_year: null,
+  authors: [],
+  venue: null,
+  citations: null,
   assessment: null,
 });
 
 const report = { title: "R", sources: [{ ...card(1), id: 1 }] } as Report;
 
-const plan: RunEvent = {
+const plan: Extract<RunEvent, { type: "plan_ready" }> = {
   type: "plan_ready",
   understanding: "u",
+  time_sensitive: false,
   topics: [
     { id: "t1", title: "A", question: "qa", search_queries: ["a"] },
     { id: "t2", title: "B", question: "qb", search_queries: ["b"] },
@@ -91,6 +97,11 @@ describe("deriveSteps", () => {
   it("marks the active step failed when the run fails", () => {
     const steps = states([plan, { type: "run_failed", error: "boom" }]);
     expect(steps.research).toBe("failed");
+  });
+
+  it("notes recency weighting for time-sensitive questions", () => {
+    const step = deriveSteps(fold([{ ...plan, time_sensitive: true }])).find((s) => s.key === "plan");
+    expect(step?.detail).toBe("2 topics · newer sources ranked higher");
   });
 
   it("labels the research step with the topic count", () => {

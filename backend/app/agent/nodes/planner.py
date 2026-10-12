@@ -29,6 +29,7 @@ async def plan_research(state: ResearchState, runtime: Runtime[AgentContext]) ->
         runtime,
         "plan_ready",
         understanding=plan.understanding,
+        time_sensitive=plan.time_sensitive,
         topics=[{"id": topic_id(i), **t.model_dump()} for i, t in enumerate(topics)],
     )
     return {"plan": plan}
@@ -39,7 +40,12 @@ def dispatch_research(state: ResearchState) -> list[Send]:
     return [
         Send(
             "research_topic",
-            TopicTask(question=state["question"], topic_id=topic_id(i), topic=topic),
+            TopicTask(
+                question=state["question"],
+                topic_id=topic_id(i),
+                topic=topic,
+                time_sensitive=state["plan"].time_sensitive,
+            ),
         )
         for i, topic in enumerate(state["plan"].topics)
     ]

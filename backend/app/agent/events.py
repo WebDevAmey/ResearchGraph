@@ -5,7 +5,7 @@ with `stream_mode="custom"`, each call surfaces as one chunk; otherwise it is
 a no-op. Payloads must be JSON-serialisable: they go straight to the browser.
 
 Event types, in the order a run produces them:
-    plan_ready          {understanding, topics: [{id, title, question, search_queries}]}
+    plan_ready          {understanding, time_sensitive, topics: [{id, title, question, search_queries}]}
     topic_started       {topic_id}
     sources_found       {topic_id, count}
     sources_evaluated   {topic_id, kept: [source], rejected: int}
@@ -35,5 +35,10 @@ def source_payload(source: Source) -> dict[str, Any]:
         "title": source.title,
         "domain": source.domain,
         "snippet": source.content[:SNIPPET_CHARS],
+        "provider": source.provider,
+        "published_year": source.published_year,
+        "authors": source.authors,
+        "venue": source.venue,
+        "citations": source.citations,
         "assessment": source.assessment.model_dump() if source.assessment else None,
     }

@@ -44,6 +44,7 @@ async def health(request: Request) -> dict:
         "status": "ok",
         "configured": request.app.state.runs is not None,
         "demo": request.app.state.demo,
+        "providers": request.app.state.providers,
     }
 
 
@@ -140,13 +141,16 @@ def create_app(
         if agent_context is None and settings.demo_mode:
             agent_context = demo_context()
             logger.warning("DEMO MODE: runs use placeholder data, not real research")
-        if agent_context is None and settings.anthropic_api_key and settings.tavily_api_key:
+        if agent_context is None and settings.can_research:
             agent_context = context_from_settings(settings)
         if agent_context is None:
             logger.warning("API keys missing: history is readable, new runs are disabled")
 
         app.state.store = store
         app.state.demo = settings.demo_mode and context is None
+        app.state.providers = [
+            p for p in settings.search_providers if p != "web" or settings.tavily_api_key
+        ]
         app.state.runs = (
             RunManager(store, agent_context, graph or default_graph, settings.max_concurrent_runs)
             if agent_context

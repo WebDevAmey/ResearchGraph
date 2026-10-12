@@ -8,6 +8,7 @@ from langgraph.runtime import Runtime
 from app.agent.context import AgentContext
 from app.agent.events import emit
 from app.agent.evidence import resolve_evidence
+from app.agent.nodes.evaluator import describe
 from app.agent.prompts import RESEARCHER_PROMPT
 from app.agent.schemas import Source, TopicAnalysis, TopicResult
 from app.agent.state import TopicState
@@ -84,6 +85,6 @@ def format_sources(sources: list[Source]) -> str:
     return "\n\n".join(
         f"[{i}] {s.title}"
         + (f" ({s.assessment.label})" if s.assessment else "")
-        + f"\nURL: {s.url}\n{s.content}"
+        + f"\nURL: {s.url}\n{describe(s)}\n{s.body}"
         for i, s in enumerate(sources, start=1)
     )

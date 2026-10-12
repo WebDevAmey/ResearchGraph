@@ -16,7 +16,7 @@ from app.agent.schemas import (
 from tests.fakes import APPROVE_ALL, FakeLLM, FakeSearch, source
 
 PLAN = ResearchPlan(
-    understanding="u",
+    time_sensitive=False, understanding="u",
     topics=[
         Topic(title="A", question="qa", search_queries=["a"]),
         Topic(title="B", question="qb", search_queries=["b"]),

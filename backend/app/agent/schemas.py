@@ -15,6 +15,8 @@ from pydantic import BaseModel, Field, computed_field
 SourceType = Literal[
     "academic", "government", "news", "industry", "reference", "blog", "forum", "other"
 ]
+# Where a source came from: the open web, a scholarly index, or an encyclopedia.
+Provider = Literal["web", "academic", "reference"]
 
 # --- LLM output schemas -----------------------------------------------------
 
@@ -33,6 +35,10 @@ class ResearchPlan(BaseModel):
     )
     topics: list[Topic] = Field(
         description="Independent research topics that together cover the question."
+    )
+    time_sensitive: bool = Field(
+        description="True if the answer depends on recent information (current prices, "
+        "policies, ongoing events, fast-moving research), so newer sources matter more."
     )
 
 
@@ -114,7 +120,7 @@ class Assessment(BaseModel):
     source_type: SourceType
     published_year: int | None = None
     reason: str
-    quality: float  # 0-1, combines relevance and credibility
+    quality: float  # 0-1: relevance and credibility, plus recency for time-sensitive questions
 
     @property
     def label(self) -> str:
@@ -127,14 +133,24 @@ class Assessment(BaseModel):
 class Source(BaseModel):
     url: str
     title: str
-    content: str
-    score: float = 0.0  # the search engine's own relevance score
+    content: str  # short snippet: what evaluation reads
+    full_text: str = ""  # page text or abstract: what analysis and quote checks read
+    score: float = 0.0  # the provider's own relevance score
+    provider: Provider = "web"
+    published_year: int | None = None  # from provider metadata, when known
+    authors: list[str] = Field(default_factory=list)
+    venue: str | None = None  # journal or repository, for papers
+    citations: int | None = None  # citation count, for papers
     assessment: Assessment | None = None
 
     @computed_field
     @property
     def domain(self) -> str:
         return urlparse(self.url).netloc.removeprefix("www.")
+
+    @property
+    def body(self) -> str:
+        return self.full_text or self.content
 
 
 class Evidence(BaseModel):
@@ -172,6 +188,11 @@ class CitedSource(BaseModel):
     title: str
     domain: str
     snippet: str = ""
+    provider: Provider = "web"
+    published_year: int | None = None
+    authors: list[str] = Field(default_factory=list)
+    venue: str | None = None
+    citations: int | None = None
     assessment: Assessment | None = None
 
 

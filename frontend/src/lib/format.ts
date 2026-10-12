@@ -25,7 +25,10 @@ export function faviconUrl(domain: string): string {
 
 export function reportToMarkdown(report: Report, question: string): string {
   const sources = report.sources
-    .map((s) => `[${s.id}] ${s.title} — ${s.url}`)
+    .map((s) => {
+      const origin = s.provider === "academic" && s.venue ? ` (${s.venue}${s.published_year ? `, ${s.published_year}` : ""})` : "";
+      return `[${s.id}] ${s.title}${origin} — ${s.url}`;
+    })
     .join("\n");
   return [
     `# ${report.title}`,

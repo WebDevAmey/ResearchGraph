@@ -54,7 +54,7 @@ def test_out_of_range_scores_are_clamped():
 # --- Evaluation inside the graph ---------------------------------------------
 
 PLAN = ResearchPlan(
-    understanding="u",
+    time_sensitive=False, understanding="u",
     topics=[
         Topic(title="A", question="qa", search_queries=["a"]),
         Topic(title="B", question="qb", search_queries=["b"]),
@@ -127,3 +127,41 @@ async def test_topic_with_no_passing_sources_reports_error_but_run_continues():
     assert topic_a.error == "No sources passed quality review."
     assert len(llm.calls_for(TopicAnalysis)) == 1  # only topic B was analysed
     assert state["report"].sources[0].assessment.source_type == "news"
+
+
+# --- Recency and provider metadata ---------------------------------------------
+
+from datetime import date  # noqa: E402
+
+from app.agent.nodes.evaluator import recency  # noqa: E402
+
+
+def test_recency_scale():
+    assert recency(2026, 2026) == 1.0
+    assert recency(2023, 2026) == 0.5
+    assert recency(2010, 2026) == 0.0
+    assert recency(None, 2026) == 0.5
+
+
+def test_recency_reorders_only_time_sensitive_questions():
+    old = source(1).model_copy(update={"published_year": 2014})
+    new = source(2).model_copy(update={"published_year": 2026})
+    # The older source is slightly more relevant.
+    assessments = [assessment(1, relevance=5, credibility=4), assessment(2, relevance=4, credibility=4)]
+    today = date(2026, 10, 12)
+
+    timeless, _ = select_sources([old, new], assessments, 10, time_sensitive=False, today=today)
+    current, _ = select_sources([old, new], assessments, 10, time_sensitive=True, today=today)
+    assert [s.title for s in timeless] == ["Source 1", "Source 2"]
+    assert [s.title for s in current] == ["Source 2", "Source 1"]
+
+
+def test_provider_metadata_beats_model_guesses():
+    paper = source(1).model_copy(update={"provider": "academic", "published_year": 2021})
+    kept, _ = select_sources([paper], [assessment(1)], 10)  # model guessed 2025, type "news"
+    assert kept[0].assessment.published_year == 2021
+    assert kept[0].assessment.source_type == "academic"
+
+    wiki = source(2).model_copy(update={"provider": "reference"})
+    kept, _ = select_sources([wiki], [assessment(1)], 10)
+    assert kept[0].assessment.source_type == "reference"

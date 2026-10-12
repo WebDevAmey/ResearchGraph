@@ -11,6 +11,8 @@ export type SourceType =
   | "forum"
   | "other";
 
+export type Provider = "web" | "academic" | "reference";
+
 export interface Assessment {
   relevance: number;
   credibility: number;
@@ -25,6 +27,11 @@ export interface SourceCard {
   title: string;
   domain: string;
   snippet: string;
+  provider: Provider;
+  published_year: number | null;
+  authors: string[];
+  venue: string | null;
+  citations: number | null;
   assessment: Assessment | null;
 }
 
@@ -68,6 +75,7 @@ export interface Health {
   status: "ok";
   configured: boolean;
   demo: boolean;
+  providers: Provider[];
 }
 
 export interface PlannedTopic {
@@ -79,7 +87,7 @@ export interface PlannedTopic {
 
 export type RunEvent =
   | { type: "run_started"; question: string }
-  | { type: "plan_ready"; understanding: string; topics: PlannedTopic[] }
+  | { type: "plan_ready"; understanding: string; time_sensitive: boolean; topics: PlannedTopic[] }
   | { type: "topic_started"; topic_id: string }
   | { type: "sources_found"; topic_id: string; count: number }
   | { type: "sources_evaluated"; topic_id: string; kept: SourceCard[]; rejected: number }

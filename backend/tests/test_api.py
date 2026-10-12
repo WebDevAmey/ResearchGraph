@@ -20,7 +20,7 @@ from app.agent.schemas import (
 from tests.fakes import APPROVE_ALL, FakeLLM, FakeSearch, source
 
 PLAN = ResearchPlan(
-    understanding="u", topics=[Topic(title="A", question="qa", search_queries=["a"])]
+    time_sensitive=False, understanding="u", topics=[Topic(title="A", question="qa", search_queries=["a"])]
 )
 RESPONSES = {
     ResearchPlan: PLAN,
@@ -135,7 +135,10 @@ async def test_validation_not_found_and_delete():
 
 async def test_without_api_keys_history_works_but_runs_are_disabled():
     async with client_for(with_context=False) as client:
-        assert (await client.get("/api/health")).json() == {"status": "ok", "configured": False, "demo": False}
+        health = (await client.get("/api/health")).json()
+        assert health["configured"] is False and health["demo"] is False
+        # Without a Tavily key the web provider is unavailable; the keyless ones remain.
+        assert health["providers"] == ["academic", "reference"]
         assert (await client.get("/api/runs")).json() == []
         assert (await client.post("/api/runs", json={"question": "question"})).status_code == 503
 

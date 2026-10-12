@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 
 const STEPS = [
   ["Plan", "Splits your question into independent topics"],
-  ["Search", "Researches every topic in parallel"],
+  ["Search", "Web, scholarly papers, and Wikipedia, every topic in parallel"],
   ["Evaluate", "Scores each source for relevance and credibility"],
   ["Verify", "Checks quotes and cross-examines conflicting claims"],
   ["Synthesise", "Writes a report where every claim is cited"],
@@ -45,8 +45,8 @@ export default function Home() {
         </BlurFade>
         <BlurFade delay={0.2}>
           <p className="mx-auto mt-5 max-w-md text-[15px] leading-relaxed text-muted-foreground text-pretty">
-            ResearchGraph plans an investigation, searches the web in parallel, weighs every source,
-            and writes a report you can trace claim by claim.
+            ResearchGraph plans an investigation, searches the web, scholarly papers, and Wikipedia
+            in parallel, weighs every source, and writes a report you can trace claim by claim.
           </p>
         </BlurFade>
 

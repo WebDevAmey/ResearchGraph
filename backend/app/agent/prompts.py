@@ -12,7 +12,10 @@ PLANNER_PROMPT = ChatPromptTemplate.from_messages(
             "measurements, expert or institutional positions, counter-arguments, "
             "recent developments. Write search queries the way an expert would type "
             "them into a search engine: specific terms, names, and years where useful.\n\n"
-            "Use fewer topics for narrow questions. Never pad the plan.",
+            "Use fewer topics for narrow questions. Never pad the plan.\n\n"
+            "Each query is sent to a web search engine, a scholarly index (OpenAlex), "
+            "and Wikipedia, so include at least one query phrased the way a paper's "
+            "title or abstract would be.",
         ),
         ("human", "{question}"),
     ]
@@ -24,7 +27,9 @@ EVALUATOR_PROMPT = ChatPromptTemplate.from_messages(
             "system",
             "You screen web sources for a research team investigating: {question}\n\n"
             "Topic: {topic}\n\n"
-            "Assess every numbered source from its URL, title, and content.\n\n"
+            "Assess every numbered source from its URL, title, metadata, and content. "
+            "For papers, weigh the venue and citation count; for Wikipedia, treat it as "
+            "a well-sourced reference (credibility 3) unless the content suggests otherwise.\n\n"
             "Relevance:\n"
             "5 = directly answers the topic with specifics (data, findings, named facts)\n"
             "3 = touches the topic but is general or partial\n"

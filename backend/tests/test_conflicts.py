@@ -50,7 +50,7 @@ def test_conflicts_need_two_grounded_sides():
 # --- In the graph -------------------------------------------------------------
 
 PLAN = ResearchPlan(
-    understanding="u",
+    time_sensitive=False, understanding="u",
     topics=[
         Topic(title="A", question="qa", search_queries=["a"]),
         Topic(title="B", question="qb", search_queries=["b"]),
@@ -103,7 +103,7 @@ async def test_conflict_detection_failure_does_not_fail_the_run():
 
 async def test_detection_is_skipped_with_a_single_source():
     llm = FakeLLM({
-        ResearchPlan: ResearchPlan(understanding="u", topics=[PLAN.topics[0]]),
+        ResearchPlan: ResearchPlan(time_sensitive=False, understanding="u", topics=[PLAN.topics[0]]),
         SourceEvaluation: APPROVE_ALL,
         TopicAnalysis: analysis_for,
         ReportDraft: DRAFT,

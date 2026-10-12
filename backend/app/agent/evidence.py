@@ -38,7 +38,7 @@ def quote_in_sources(quote: str, sources: list[Source]) -> bool:
     if not fragments:
         return False
     return any(
-        all(fragment in _normalize(source.content) for fragment in fragments) for source in sources
+        all(fragment in _normalize(source.body) for fragment in fragments) for source in sources
     )
 
 

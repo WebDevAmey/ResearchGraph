@@ -5,6 +5,7 @@ deterministic, testable, and tunable without touching prompts.
 """
 
 import logging
+from datetime import date
 
 from langgraph.runtime import Runtime
 
@@ -18,8 +19,12 @@ logger = logging.getLogger(__name__)
 
 MIN_RELEVANCE = 3
 MIN_CREDIBILITY = 2
-RELEVANCE_WEIGHT = 0.6
-CREDIBILITY_WEIGHT = 0.4
+# (relevance, credibility, recency) weights. Recency only counts when the
+# planner judged the question time-sensitive.
+WEIGHTS = (0.6, 0.4, 0.0)
+TIME_SENSITIVE_WEIGHTS = (0.5, 0.3, 0.2)
+RECENCY_HORIZON_YEARS = 6  # a source this old (or older) gets no recency credit
+_PROVIDER_TYPES = {"academic": "academic", "reference": "reference"}
 
 
 async def evaluate_sources(state: TopicState, runtime: Runtime[AgentContext]) -> dict:
@@ -53,7 +58,12 @@ async def _evaluate(state: TopicState, ctx: AgentContext) -> dict:
         kept, rejected = split(candidates, by_search_score(candidates)[: ctx.max_sources_per_topic])
         return {"sources": kept, "rejected": rejected}
 
-    kept, rejected = select_sources(candidates, evaluation.assessments, ctx.max_sources_per_topic)
+    kept, rejected = select_sources(
+        candidates,
+        evaluation.assessments,
+        ctx.max_sources_per_topic,
+        time_sensitive=state.get("time_sensitive", False),
+    )
     update = {"sources": kept, "rejected": rejected}
     if not kept:
         update["error"] = "No sources passed quality review."
@@ -61,12 +71,21 @@ async def _evaluate(state: TopicState, ctx: AgentContext) -> dict:
 
 
 def select_sources(
-    candidates: list[Source], assessments: list[SourceAssessment], limit: int
+    candidates: list[Source],
+    assessments: list[SourceAssessment],
+    limit: int,
+    time_sensitive: bool = False,
+    today: date | None = None,
 ) -> tuple[list[Source], list[Source]]:
     """Attach assessments, keep sources above the thresholds, best first, up to `limit`."""
     by_id = {a.source_id: a for a in assessments if 1 <= a.source_id <= len(candidates)}
+    current_year = (today or date.today()).year
     assessed = [
-        c.model_copy(update={"assessment": to_assessment(by_id[i])}) if i in by_id else c
+        c.model_copy(
+            update={"assessment": to_assessment(by_id[i], c, time_sensitive, current_year)}
+        )
+        if i in by_id
+        else c
         for i, c in enumerate(candidates, start=1)
     ]
     passing = [s for s in assessed if s.assessment and passes(s.assessment)]
@@ -74,17 +93,34 @@ def select_sources(
     return split(assessed, passing[:limit])
 
 
-def to_assessment(raw: SourceAssessment) -> Assessment:
+def to_assessment(
+    raw: SourceAssessment, source: Source, time_sensitive: bool, current_year: int
+) -> Assessment:
     relevance, credibility = clamp(raw.relevance), clamp(raw.credibility)
-    quality = (RELEVANCE_WEIGHT * (relevance - 1) + CREDIBILITY_WEIGHT * (credibility - 1)) / 4
+    # Provider metadata (a paper's publication year) beats the model's reading of the page.
+    year = source.published_year or raw.published_year
+    w_rel, w_cred, w_recent = TIME_SENSITIVE_WEIGHTS if time_sensitive else WEIGHTS
+    quality = (
+        w_rel * (relevance - 1) / 4
+        + w_cred * (credibility - 1) / 4
+        + w_recent * recency(year, current_year)
+    )
     return Assessment(
         relevance=relevance,
         credibility=credibility,
-        source_type=raw.source_type,
-        published_year=raw.published_year,
+        # The provider is ground truth for papers and encyclopedia entries.
+        source_type=_PROVIDER_TYPES.get(source.provider, raw.source_type),
+        published_year=year,
         reason=raw.reason,
         quality=round(quality, 3),
     )
+
+
+def recency(year: int | None, current_year: int) -> float:
+    """1.0 for this year, falling linearly to 0 at the horizon; 0.5 when unknown."""
+    if year is None:
+        return 0.5
+    return max(0.0, min(1.0, 1 - (current_year - year) / RECENCY_HORIZON_YEARS))
 
 
 def passes(assessment: Assessment) -> bool:
@@ -107,5 +143,20 @@ def split(all_sources: list[Source], kept: list[Source]) -> tuple[list[Source], 
 
 def format_candidates(sources: list[Source]) -> str:
     return "\n\n".join(
-        f"[{i}] {s.title}\nURL: {s.url}\n{s.content}" for i, s in enumerate(sources, start=1)
+        f"[{i}] {s.title}\nURL: {s.url}\n{describe(s)}\n{s.content}"
+        for i, s in enumerate(sources, start=1)
     )
+
+
+def describe(source: Source) -> str:
+    """One line of provider metadata the model can weigh."""
+    parts = {"web": ["Web page"], "academic": ["Scholarly paper"], "reference": ["Wikipedia"]}[
+        source.provider
+    ]
+    if source.venue:
+        parts.append(source.venue)
+    if source.published_year:
+        parts.append(str(source.published_year))
+    if source.citations is not None:
+        parts.append(f"cited by {source.citations}")
+    return "Source: " + " · ".join(parts)

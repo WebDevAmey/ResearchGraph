@@ -25,6 +25,7 @@ export interface ResearchView {
   status: "connecting" | "running" | "completed" | "failed";
   question: string | null;
   understanding: string | null;
+  timeSensitive: boolean;
   topics: TopicView[];
   conflicts: { phase: Phase; count: number };
   synthesis: Phase;
@@ -36,6 +37,7 @@ export const initialView: ResearchView = {
   status: "connecting",
   question: null,
   understanding: null,
+  timeSensitive: false,
   topics: [],
   conflicts: { phase: "idle", count: 0 },
   synthesis: "idle",
@@ -55,6 +57,7 @@ export function reduceView(view: ResearchView, event: ViewAction): ResearchView 
       return {
         ...view,
         understanding: event.understanding,
+        timeSensitive: event.time_sensitive ?? false,
         topics: event.topics.map((t) => ({
           ...t,
           status: "queued",
@@ -139,7 +142,10 @@ export function deriveSteps(view: ResearchView): Step[] {
       key: "plan",
       label: "Creating research plan",
       state: planned ? "done" : view.understanding ? "active" : "pending",
-      detail: planned ? `${topics.length} ${topics.length === 1 ? "topic" : "topics"}` : null,
+      detail: planned
+        ? `${topics.length} ${topics.length === 1 ? "topic" : "topics"}` +
+          (view.timeSensitive ? " · newer sources ranked higher" : "")
+        : null,
     },
     {
       key: "research",

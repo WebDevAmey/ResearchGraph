@@ -2,6 +2,7 @@ import { ArrowUpRight } from "lucide-react";
 
 import { CredibilityMeter, sourceTypeLabel } from "@/components/research/credibility";
 import { SourceFavicon } from "@/components/research/source-favicon";
+import { paperByline, ProviderBadge, sourceOrigin } from "@/components/research/source-meta";
 import type { SourceCard as SourceCardData } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +18,11 @@ export function SourceCard({
   highlighted?: boolean;
 }) {
   const { assessment } = source;
+  const year = source.published_year ?? assessment?.published_year;
+  const byline = paperByline(source);
+  // For papers and Wikipedia the type would just repeat the provider badge.
+  const showType = assessment && source.provider === "web";
+
   return (
     <article
       id={index ? `source-${index}` : undefined}
@@ -26,19 +32,13 @@ export function SourceCard({
       )}
     >
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        {index !== undefined && (
-          <span className="font-mono tabular-nums text-cite">{index}</span>
-        )}
+        {index !== undefined && <span className="font-mono tabular-nums text-cite">{index}</span>}
         <SourceFavicon domain={source.domain} />
-        <span className="truncate">{source.domain}</span>
-        {assessment && (
-          <span className="relative z-10 ml-auto flex shrink-0 items-center gap-2">
-            {assessment.published_year && (
-              <span className="tabular-nums">{assessment.published_year}</span>
-            )}
-            <CredibilityMeter assessment={assessment} />
-          </span>
-        )}
+        <span className="truncate">{sourceOrigin(source)}</span>
+        <span className="relative z-10 ml-auto flex shrink-0 items-center gap-2">
+          {year && !byline && <span className="tabular-nums">{year}</span>}
+          {assessment && <CredibilityMeter assessment={assessment} />}
+        </span>
       </div>
       <a
         href={source.url}
@@ -48,12 +48,18 @@ export function SourceCard({
       >
         <span className={cn(compact ? "line-clamp-1" : "line-clamp-2")}>{source.title}</span>
       </a>
+      {byline && <p className="text-xs text-muted-foreground tabular-nums">{byline}</p>}
       {!compact && source.snippet && (
         <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{source.snippet}</p>
       )}
-      {assessment && !compact && (
-        <span className="mt-auto inline-flex w-fit items-center rounded-md bg-muted px-1.5 py-0.5 text-[10.5px] font-medium text-muted-foreground">
-          {sourceTypeLabel(assessment.source_type)}
+      {!compact && (
+        <span className="mt-auto flex flex-wrap gap-1.5">
+          <ProviderBadge provider={source.provider} />
+          {showType && (
+            <span className="inline-flex items-center rounded-md bg-muted px-1.5 py-0.5 text-[10.5px] font-medium text-muted-foreground">
+              {sourceTypeLabel(assessment.source_type)}
+            </span>
+          )}
         </span>
       )}
       <ArrowUpRight

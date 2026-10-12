@@ -45,6 +45,7 @@ class TopicTask(TypedDict):
     question: str
     topic_id: str
     topic: Topic
+    time_sensitive: bool  # newer sources rank higher when the answer depends on recency
 
 
 class TopicState(TopicTask, total=False):

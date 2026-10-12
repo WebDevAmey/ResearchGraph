@@ -1,6 +1,6 @@
 "use client";
 
-import { FlaskConical, KeyRound, PlugZap } from "lucide-react";
+import { FlaskConical, Globe, KeyRound, PlugZap } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { api, API_URL } from "@/lib/api";
@@ -31,6 +31,13 @@ export function ServerStatus() {
     return (
       <Notice icon={<FlaskConical className="size-3.5" />}>
         Demo mode: runs use placeholder data, not real research.
+      </Notice>
+    );
+  }
+  if (state.health.configured && !state.health.providers.includes("web")) {
+    return (
+      <Notice icon={<Globe className="size-3.5" />}>
+        Web search is off (no Tavily key), so research uses scholarly papers and Wikipedia.
       </Notice>
     );
   }
