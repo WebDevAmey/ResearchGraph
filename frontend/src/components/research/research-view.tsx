@@ -1,12 +1,22 @@
 "use client";
 
-import { AlertTriangle, ArrowLeft, Check, Copy, Download, RotateCcw, WifiOff } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Check,
+  Copy,
+  Download,
+  RotateCcw,
+  Square,
+  WifiOff,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { AgentThinking } from "@/components/agent-thinking";
+import { EvidenceQuality } from "@/components/research/evidence-quality";
 import { LivePanel } from "@/components/research/live-panel";
 import { REPORT_SECTIONS, ReportView } from "@/components/research/report-view";
 import { RunTimeline } from "@/components/research/run-timeline";
@@ -74,7 +84,10 @@ function RunPage({ run }: { run: RunRecord }) {
         {view.report && <p className="mt-3 text-[15px] text-muted-foreground">{question}</p>}
         <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
           {running ? (
-            <AgentThinking label={activeStepLabel(view)} />
+            <>
+              <AgentThinking label={activeStepLabel(view)} />
+              {view.status === "running" && <StopButton runId={run.id} />}
+            </>
           ) : view.status === "completed" ? (
             <span className="inline-flex items-center gap-1.5">
               <Check className="size-3.5 text-success" /> Completed
@@ -101,7 +114,12 @@ function RunPage({ run }: { run: RunRecord }) {
         <aside className="lg:sticky lg:top-20 lg:self-start">
           <MobileCollapsible done={!running}>
             <RunTimeline view={view} />
-            {view.report && <Contents />}
+            {view.report && (
+              <>
+                <EvidenceQuality metrics={view.report.metrics} usage={view.usage ?? run.usage} />
+                <Contents />
+              </>
+            )}
           </MobileCollapsible>
         </aside>
 
@@ -178,6 +196,35 @@ function Contents() {
   );
 }
 
+function StopButton({ runId }: { runId: string }) {
+  const [stopping, setStopping] = useState(false);
+
+  async function stop() {
+    setStopping(true);
+    try {
+      await api.cancelRun(runId);
+    } catch (error) {
+      // 409 means it finished in the meantime; nothing to undo.
+      if (!(error instanceof ApiError && error.status === 409)) {
+        toast.error(error instanceof Error ? error.message : "Could not stop the run.");
+      }
+      setStopping(false);
+    }
+  }
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      onClick={stop}
+      disabled={stopping}
+      className="ml-auto h-8 gap-1.5 text-muted-foreground"
+    >
+      <Square className="size-3 fill-current" /> {stopping ? "Stopping…" : "Stop"}
+    </Button>
+  );
+}
+
 function ReportActions({ question, view }: { question: string; view: View }) {
   const [copied, setCopied] = useState(false);
   if (!view.report) return null;
@@ -231,17 +278,19 @@ function FailurePanel({ question, message }: { question: string; message: string
     }
   }
 
+  const stopped = message === "Stopped by user.";
   return (
     <div role="alert" className="rounded-xl border border-destructive/25 bg-destructive/[0.04] p-6">
       <div className="flex items-center gap-2 font-medium">
-        <AlertTriangle className="size-4 text-destructive" /> Research could not be completed
+        <AlertTriangle className="size-4 text-destructive" />
+        {stopped ? "Research stopped" : "Research could not be completed"}
       </div>
       <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
         {message ?? "Something went wrong while researching this question."}
       </p>
       <div className="mt-5 flex flex-wrap gap-2">
         <Button size="sm" onClick={retry} disabled={pending} className="gap-1.5">
-          <RotateCcw className="size-3.5" /> Try again
+          <RotateCcw className="size-3.5" /> {stopped ? "Run again" : "Try again"}
         </Button>
         <Button size="sm" variant="outline" asChild>
           <Link href="/">Ask something else</Link>

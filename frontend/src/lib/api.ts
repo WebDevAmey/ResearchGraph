@@ -36,6 +36,8 @@ export const api = {
   getRun: (id: string) => request<RunRecord>(`/api/runs/${encodeURIComponent(id)}`),
   createRun: (question: string) =>
     request<RunRecord>("/api/runs", { method: "POST", body: JSON.stringify({ question }) }),
+  cancelRun: (id: string) =>
+    request<{ status: string }>(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
   deleteRun: (id: string) =>
     request<void>(`/api/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
   eventsUrl: (id: string) => `${API_URL}/api/runs/${encodeURIComponent(id)}/events`,

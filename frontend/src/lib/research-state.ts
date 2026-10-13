@@ -5,7 +5,7 @@
  * the server replays every stored event, and the reducer rebuilds the view.
  */
 
-import type { PlannedTopic, Report, RunEvent, SourceCard } from "@/lib/types";
+import type { PlannedTopic, Report, RunEvent, RunUsage, SourceCard } from "@/lib/types";
 
 export type TopicStatus = "queued" | "searching" | "evaluating" | "analyzing" | "done" | "failed";
 
@@ -30,6 +30,7 @@ export interface ResearchView {
   conflicts: { phase: Phase; count: number };
   synthesis: Phase;
   report: Report | null;
+  usage: RunUsage | null;
   error: string | null;
 }
 
@@ -42,6 +43,7 @@ export const initialView: ResearchView = {
   conflicts: { phase: "idle", count: 0 },
   synthesis: "idle",
   report: null,
+  usage: null,
   error: null,
 };
 
@@ -78,7 +80,7 @@ export function reduceView(view: ResearchView, event: ViewAction): ResearchView 
       });
     case "sources_evaluated":
       return updateTopic(view, event.topic_id, {
-        kept: event.kept,
+        kept: event.kept.map(withSourceDefaults),
         rejected: event.rejected,
         status: "analyzing",
       });
@@ -96,12 +98,43 @@ export function reduceView(view: ResearchView, event: ViewAction): ResearchView 
     case "synthesis_started":
       return { ...view, synthesis: "running" };
     case "report_ready":
-      return { ...view, status: "completed", synthesis: "done", report: event.report };
+      return {
+        ...view,
+        status: "completed",
+        synthesis: "done",
+        report: withReportDefaults(event.report),
+        usage: event.usage ?? null,
+      };
     case "run_failed":
-      return { ...view, status: "failed", error: event.error };
+      return { ...view, status: "failed", error: event.error, usage: event.usage ?? null };
     default:
       return view;
   }
+}
+
+// --- Compatibility -------------------------------------------------------------
+// Events are stored forever and replayed, so a report saved by an older
+// version can lack fields added since. Defaults are filled here, where server
+// data enters the UI, so components can trust the types.
+
+function withSourceDefaults<T extends SourceCard>(source: T): T {
+  return {
+    ...source,
+    provider: source.provider ?? "web",
+    published_year: source.published_year ?? null,
+    authors: source.authors ?? [],
+    venue: source.venue ?? null,
+    citations: source.citations ?? null,
+  };
+}
+
+function withReportDefaults(report: Report): Report {
+  return {
+    ...report,
+    sources: report.sources.map(withSourceDefaults),
+    conflicts: report.conflicts ?? [],
+    metrics: report.metrics ?? null,
+  };
 }
 
 function updateTopic(view: ResearchView, id: string, patch: Partial<TopicView>): ResearchView {

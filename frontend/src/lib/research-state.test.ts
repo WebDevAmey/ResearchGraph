@@ -16,6 +16,8 @@ const card = (n: number): SourceCard => ({
   assessment: null,
 });
 
+const usage = { calls: 7, input_tokens: 9000, output_tokens: 1200, cost_usd: 0.06 };
+
 const report = { title: "R", sources: [{ ...card(1), id: 1 }] } as Report;
 
 const plan: Extract<RunEvent, { type: "plan_ready" }> = {
@@ -59,8 +61,11 @@ describe("reduceView", () => {
   });
 
   it("completes with a report and resets cleanly", () => {
-    const done = fold([{ type: "run_started", question: "q" }, { type: "report_ready", report }]);
-    expect(done).toMatchObject({ status: "completed", synthesis: "done", report });
+    const done = fold([
+      { type: "run_started", question: "q" },
+      { type: "report_ready", report, usage },
+    ]);
+    expect(done).toMatchObject({ status: "completed", synthesis: "done", report, usage });
     expect(reduceView(done, { type: "reset" })).toEqual(initialView);
   });
 });
@@ -104,8 +109,40 @@ describe("deriveSteps", () => {
     expect(step?.detail).toBe("2 topics · newer sources ranked higher");
   });
 
+  it("keeps usage from a failed run", () => {
+    expect(fold([{ type: "run_failed", error: "x", usage }]).usage).toEqual(usage);
+  });
+
   it("labels the research step with the topic count", () => {
     const research = deriveSteps(fold([plan])).find((s) => s.key === "research");
     expect(research?.label).toBe("Researching 2 topics in parallel");
+  });
+});
+
+describe("events saved by older versions", () => {
+  // Reports stored before providers and metrics existed lack those fields.
+  const legacySource = { url: "https://old.example/1", title: "Old", domain: "old.example", snippet: "", assessment: null };
+
+  it("fills source defaults in stored reports", () => {
+    const legacyReport = { title: "Old report", sources: [{ ...legacySource, id: 1 }] } as unknown as Report;
+    const view = fold([{ type: "report_ready", report: legacyReport } as unknown as RunEvent]);
+    expect(view.report?.sources[0]).toMatchObject({
+      provider: "web",
+      authors: [],
+      venue: null,
+      citations: null,
+      published_year: null,
+    });
+    expect(view.report?.metrics).toBeNull();
+    expect(view.report?.conflicts).toEqual([]);
+    expect(view.usage).toBeNull();
+  });
+
+  it("fills source defaults in live source events", () => {
+    const view = fold([
+      plan,
+      { type: "sources_evaluated", topic_id: "t1", kept: [legacySource], rejected: 0 } as unknown as RunEvent,
+    ]);
+    expect(keptSources(view)[0].provider).toBe("web");
   });
 });

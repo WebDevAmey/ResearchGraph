@@ -46,6 +46,24 @@ export interface ReportConflict {
   verdict: string;
 }
 
+export interface ReportMetrics {
+  sources_reviewed: number;
+  sources_cited: number;
+  evidence_items: number;
+  verified_quotes: number;
+  verified_rate: number;
+  distinct_domains: number;
+  avg_credibility: number | null;
+  providers: Partial<Record<Provider, number>>;
+}
+
+export interface RunUsage {
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number | null;
+}
+
 export interface Report {
   title: string;
   executive_summary: string;
@@ -56,6 +74,7 @@ export interface Report {
   conclusion: string;
   sources: CitedSource[];
   conflicts: ReportConflict[];
+  metrics: ReportMetrics | null;
 }
 
 export type RunStatus = "running" | "completed" | "failed";
@@ -67,6 +86,7 @@ export interface RunRecord {
   title: string | null;
   report: Report | null;
   error: string | null;
+  usage: RunUsage | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -101,7 +121,7 @@ export type RunEvent =
   | { type: "conflicts_started" }
   | { type: "conflicts_ready"; count: number }
   | { type: "synthesis_started" }
-  | { type: "report_ready"; report: Report }
-  | { type: "run_failed"; error: string };
+  | { type: "report_ready"; report: Report; usage: RunUsage }
+  | { type: "run_failed"; error: string; usage?: RunUsage };
 
 export const TERMINAL_EVENTS = new Set<RunEvent["type"]>(["report_ready", "run_failed"]);
