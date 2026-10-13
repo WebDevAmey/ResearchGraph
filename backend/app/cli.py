@@ -11,22 +11,27 @@ from pathlib import Path
 from app.agent.context import context_from_settings
 from app.agent.graph import graph
 from app.agent.nodes.synthesizer import InsufficientEvidenceError
-from app.config import get_settings
+from app.agent.usage import UsageTracker
+from app.config import configure_tracing, get_settings
 
 
 async def run(question: str, out: Path | None) -> int:
     settings = get_settings()
-    missing = [k for k in ("anthropic_api_key", "tavily_api_key") if not getattr(settings, k)]
-    if missing:
-        print(f"Missing settings: {', '.join(k.upper() for k in missing)} (see .env.example)")
+    if not settings.can_research:
+        print("Set ANTHROPIC_API_KEY (and optionally TAVILY_API_KEY) in .env; see .env.example")
         return 1
+    configure_tracing(settings)
 
     context = context_from_settings(settings)
+    usage = UsageTracker()
     report = None
     try:
         # stream_mode="updates" yields {node_name: state_update} as each node finishes.
         async for update in graph.astream(
-            {"question": question}, context=context, stream_mode="updates"
+            {"question": question},
+            config={"callbacks": [usage]},
+            context=context,
+            stream_mode="updates",
         ):
             for node, data in update.items():
                 if node == "plan_research":
@@ -48,7 +53,12 @@ async def run(question: str, out: Path | None) -> int:
                     print(f"✓ Cross-checked evidence: {len(data['conflicts'])} conflicts found")
                 elif node == "synthesize_report":
                     report = data["report"]
-                    print("✓ Report written\n")
+                    cost = usage.summary()
+                    price = f" · ${cost.cost_usd:.2f}" if cost.cost_usd is not None else ""
+                    print(
+                        f"✓ Report written · {cost.calls} model calls · "
+                        f"{cost.input_tokens + cost.output_tokens:,} tokens{price}\n"
+                    )
     except InsufficientEvidenceError as exc:
         print(f"✗ {exc}")
         return 1

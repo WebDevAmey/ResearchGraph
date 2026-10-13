@@ -4,14 +4,16 @@ A run's events are the source of truth for the UI: the timeline, source
 cards, and final report are all rebuilt by replaying them. That makes
 reconnects, page refreshes, and history views the same code path.
 
-sqlite3 is synchronous, so every call runs in a worker thread. One shared
-connection guarded by a lock is plenty for a single-process app.
+sqlite3 is synchronous, so every call runs on a single dedicated worker
+thread. One thread means operations execute strictly in submission order,
+even when the coroutine awaiting one is cancelled mid-flight, so a run's
+events can never be stored out of sequence.
 """
 
 import asyncio
 import json
 import sqlite3
-import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -27,6 +29,7 @@ CREATE TABLE IF NOT EXISTS runs (
     title        TEXT,
     report       TEXT,
     error        TEXT,
+    usage        TEXT,
     created_at   TEXT NOT NULL,
     completed_at TEXT
 );
@@ -39,6 +42,9 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE INDEX IF NOT EXISTS runs_created ON runs(created_at DESC);
 """
 
+# Columns added after the first release, applied to existing databases on startup.
+_MIGRATIONS = {"usage": "ALTER TABLE runs ADD COLUMN usage TEXT"}
+
 
 class RunRecord(BaseModel):
     id: str
@@ -47,6 +53,7 @@ class RunRecord(BaseModel):
     title: str | None = None
     report: dict[str, Any] | None = None
     error: str | None = None
+    usage: dict[str, Any] | None = None  # calls, tokens, estimated cost
     created_at: str
     completed_at: str | None = None
 
@@ -60,18 +67,23 @@ class RunStore:
     def __init__(self, path: str) -> None:
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._lock = threading.Lock()
-        with self._lock:
-            self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA foreign_keys=ON")
-            self._conn.executescript(_SCHEMA)
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="runstore")
+        # Schema setup runs inline: the store isn't shared with any thread yet.
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("PRAGMA foreign_keys=ON")
+        self._conn.executescript(_SCHEMA)
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(runs)")}
+        for column, statement in _MIGRATIONS.items():
+            if column not in columns:
+                self._conn.execute(statement)
+        self._conn.commit()
 
     async def _run(self, fn, *args):
-        def locked():
-            with self._lock, self._conn:
+        def in_transaction():
+            with self._conn:  # commit on success, roll back on error
                 return fn(*args)
 
-        return await asyncio.to_thread(locked)
+        return await asyncio.get_running_loop().run_in_executor(self._executor, in_transaction)
 
     # --- runs ---------------------------------------------------------------
 
@@ -85,19 +97,22 @@ class RunStore:
         )
         return RunRecord(id=run_id, question=question, status="running", created_at=now)
 
-    async def complete_run(self, run_id: str, report: dict[str, Any]) -> None:
+    async def complete_run(
+        self, run_id: str, report: dict[str, Any], usage: dict[str, Any] | None = None
+    ) -> None:
         await self._run(
             lambda: self._conn.execute(
-                "UPDATE runs SET status='completed', title=?, report=?, completed_at=? WHERE id=?",
-                (report.get("title"), json.dumps(report), _now(), run_id),
+                "UPDATE runs SET status='completed', title=?, report=?, usage=?, completed_at=? "
+                "WHERE id=?",
+                (report.get("title"), json.dumps(report), _dumps(usage), _now(), run_id),
             )
         )
 
-    async def fail_run(self, run_id: str, error: str) -> None:
+    async def fail_run(self, run_id: str, error: str, usage: dict[str, Any] | None = None) -> None:
         await self._run(
             lambda: self._conn.execute(
-                "UPDATE runs SET status='failed', error=?, completed_at=? WHERE id=?",
-                (error, _now(), run_id),
+                "UPDATE runs SET status='failed', error=?, usage=?, completed_at=? WHERE id=?",
+                (error, _dumps(usage), _now(), run_id),
             )
         )
 
@@ -120,7 +135,7 @@ class RunStore:
     async def list_runs(self, limit: int = 20) -> list[RunRecord]:
         rows = await self._run(
             lambda: self._conn.execute(
-                "SELECT id, question, status, title, error, created_at, completed_at "
+                "SELECT id, question, status, title, error, usage, created_at, completed_at "
                 "FROM runs ORDER BY created_at DESC LIMIT ?",
                 (limit,),
             ).fetchall()
@@ -158,15 +173,20 @@ class RunStore:
         return [StoredEvent(seq=r["seq"], data=json.loads(r["data"])) for r in rows]
 
     def close(self) -> None:
-        with self._lock:
-            self._conn.close()
+        self._executor.shutdown(wait=True)  # let queued writes finish first
+        self._conn.close()
 
 
 def _to_record(row: sqlite3.Row) -> RunRecord:
     data = dict(row)
-    if data.get("report"):
-        data["report"] = json.loads(data["report"])
+    for column in ("report", "usage"):
+        if data.get(column):
+            data[column] = json.loads(data[column])
     return RunRecord(**data)
+
+
+def _dumps(value: dict[str, Any] | None) -> str | None:
+    return json.dumps(value) if value is not None else None
 
 
 def _now() -> str:

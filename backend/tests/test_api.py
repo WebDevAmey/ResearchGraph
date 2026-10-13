@@ -175,3 +175,88 @@ async def _no_sleep(_seconds):
 @pytest.fixture(autouse=True)
 def quiet_logs(caplog):
     caplog.set_level("ERROR")
+
+
+async def test_cancel_stops_a_running_run():
+    async with client_for(delay=0.5) as client:
+        run = (await client.post("/api/runs", json={"question": "question"})).json()
+        assert (await client.post(f"/api/runs/{run['id']}/cancel")).status_code == 202
+        events = await read_events(client, run["id"])
+        assert events[-1][1] == {
+            "type": "run_failed",
+            "error": "Stopped by user.",
+            "usage": {"calls": 0, "input_tokens": 0, "output_tokens": 0, "cost_usd": 0.0},
+        }
+        assert (await client.post(f"/api/runs/{run['id']}/cancel")).status_code == 409
+
+
+async def test_rate_limit_per_client():
+    async with client_for(runs_per_hour_per_client=2) as client:
+        for _ in range(2):
+            run = (await client.post("/api/runs", json={"question": "question"})).json()
+            await read_events(client, run["id"])
+        blocked = await client.post("/api/runs", json={"question": "question"})
+        assert blocked.status_code == 429
+        assert int(blocked.headers["retry-after"]) > 0
+
+
+async def test_report_carries_metrics_and_run_records_usage():
+    async with client_for() as client:
+        run = (await client.post("/api/runs", json={"question": "question"})).json()
+        events = await read_events(client, run["id"])
+        final = events[-1][1]
+        metrics = final["report"]["metrics"]
+        assert metrics["sources_cited"] == 1 and metrics["evidence_items"] == 1
+        assert metrics["verified_quotes"] == 1 and metrics["verified_rate"] == 1.0
+        assert metrics["providers"] == {"web": 1}
+        assert "usage" in final
+        stored = (await client.get(f"/api/runs/{run['id']}")).json()
+        assert stored["usage"] == final["usage"]
+
+
+async def test_store_migrates_databases_from_before_usage_tracking(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE runs (id TEXT PRIMARY KEY, question TEXT NOT NULL, status TEXT NOT NULL, "
+        "title TEXT, report TEXT, error TEXT, created_at TEXT NOT NULL, completed_at TEXT)"
+    )
+    conn.execute("INSERT INTO runs (id, question, status, created_at) VALUES ('r1', 'q', 'completed', 'now')")
+    conn.commit()
+    conn.close()
+
+    store = RunStore(str(path))
+    await store.complete_run("r1", {"title": "t"}, {"calls": 3})
+    assert (await store.get_run("r1")).usage == {"calls": 3}
+    store.close()
+
+
+async def test_stream_does_not_miss_a_final_event_racing_with_completion():
+    """Regression: the run finishing between reading events and checking it is active."""
+    import asyncio
+
+    from app.api.runs import RunManager
+
+    store = RunStore(":memory:")
+    await store.create_run("r1", "q")
+    manager = RunManager(store, context=None, graph=None)
+    manager._signals["r1"] = asyncio.Condition()
+    await store.append_event("r1", {"type": "run_started"})
+
+    real_events_after = store.events_after
+
+    async def events_after_then_finish(run_id, after_seq=0):
+        events = await real_events_after(run_id, after_seq)
+        if after_seq == 0:
+            # Worst-case interleaving: the run stores its final event and
+            # deactivates right after the stream's read.
+            await store.append_event("r1", {"type": "report_ready"})
+            manager._signals.pop("r1")
+        return events
+
+    store.events_after = events_after_then_finish
+    seen = [e.data["type"] async for e in manager.events("r1") if e]
+    assert seen == ["run_started", "report_ready"]
+    store.close()

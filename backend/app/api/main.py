@@ -4,6 +4,7 @@
     GET    /api/runs              recent runs (history)
     GET    /api/runs/{id}         one run, with its report when complete
     GET    /api/runs/{id}/events  Server-Sent Events: replay + live progress
+    POST   /api/runs/{id}/cancel  stop a run in progress  → 202
     DELETE /api/runs/{id}
     GET    /api/health
 
@@ -22,9 +23,10 @@ from pydantic import BaseModel, Field
 
 from app.agent.context import AgentContext, context_from_settings
 from app.agent.graph import graph as default_graph
+from app.api.ratelimit import RateLimiter
 from app.api.runs import CapacityError, RunManager
 from app.api.store import RunRecord, RunStore
-from app.config import Settings, get_settings
+from app.config import Settings, configure_tracing, get_settings
 from app.demo import demo_context
 
 logger = logging.getLogger(__name__)
@@ -53,11 +55,27 @@ async def create_run(body: CreateRunRequest, request: Request) -> RunRecord:
     runs: RunManager | None = request.app.state.runs
     if runs is None:
         raise HTTPException(503, "The server is missing its API keys (see .env.example).")
+    retry_after = request.app.state.limiter.check(_client_key(request))
+    if retry_after is not None:
+        raise HTTPException(
+            429,
+            f"Rate limit reached. Try again in {max(1, round(retry_after / 60))} min.",
+            headers={"Retry-After": str(int(retry_after) + 1)},
+        )
     question = " ".join(body.question.split())
     try:
         return await runs.start(question)
     except CapacityError as exc:
         raise HTTPException(429, str(exc)) from exc
+
+
+@router.post("/runs/{run_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
+async def cancel_run(run_id: str, request: Request) -> dict:
+    run = await _require_run(request, run_id)
+    runs: RunManager | None = request.app.state.runs
+    if run.status != "running" or runs is None or not runs.cancel(run_id):
+        raise HTTPException(409, "This run is not in progress.")
+    return {"status": "cancelling"}
 
 
 @router.get("/runs")
@@ -113,6 +131,14 @@ async def _replay(store: RunStore, run_id: str, cursor: int):
         yield event
 
 
+def _client_key(request: Request) -> str:
+    if request.app.state.trust_proxy:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
 async def _require_run(request: Request, run_id: str) -> RunRecord:
     run = await request.app.state.store.get_run(run_id)
     if run is None:
@@ -129,6 +155,7 @@ def create_app(
     graph: CompiledStateGraph | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
+    configure_tracing(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -151,15 +178,21 @@ def create_app(
         app.state.providers = [
             p for p in settings.search_providers if p != "web" or settings.tavily_api_key
         ]
+        app.state.limiter = RateLimiter(settings.runs_per_hour_per_client)
+        app.state.trust_proxy = settings.trust_proxy_headers
         app.state.runs = (
             RunManager(store, agent_context, graph or default_graph, settings.max_concurrent_runs)
             if agent_context
             else None
         )
-        yield
-        if app.state.runs:
-            await app.state.runs.shutdown()
-        store.close()
+        try:
+            yield
+        finally:
+            # Mark in-flight runs failed, then close the database, even when the
+            # app is exiting because of an error.
+            if app.state.runs:
+                await app.state.runs.shutdown()
+            store.close()
 
     app = FastAPI(title="ResearchGraph", lifespan=lifespan)
     app.add_middleware(
