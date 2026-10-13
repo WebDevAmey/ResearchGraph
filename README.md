@@ -8,7 +8,7 @@ An autonomous research agent that plans an investigation, researches topics in p
 scores every source, verifies its quotes, cross-examines conflicting claims, and writes a
 report where every sentence links back to its evidence.
 
-LangGraph · LangChain · Claude · Tavily · FastAPI · SQLite · Next.js 16 · Tailwind v4 · shadcn/ui
+LangGraph · LangChain · Claude · Tavily · OpenAlex · Wikipedia · FastAPI · SQLite · Next.js 16 · Tailwind v4
 
 <img src="docs/images/home.png" alt="ResearchGraph home page" width="860" />
 
@@ -24,6 +24,8 @@ LangGraph · LangChain · Claude · Tavily · FastAPI · SQLite · Next.js 16 ·
 - [The agent graph](#the-agent-graph)
 - [Lifecycle of a run](#lifecycle-of-a-run)
 - [How answers stay grounded](#how-answers-stay-grounded)
+- [Sources](#sources)
+- [Observability and cost](#observability-and-cost)
 - [Project structure](#project-structure)
 - [API](#api)
 - [Configuration](#configuration)
@@ -41,16 +43,17 @@ Ask a question, and the agent works through seven steps you can watch live:
 | # | Step | What happens |
 |---|------|--------------|
 | 1 | **Plan** | Claude splits the question into up to 5 independent topics, each with its own search queries |
-| 2 | **Search** | Every topic is researched **in parallel** with Tavily web search |
-| 3 | **Evaluate** | Each source is scored for relevance and credibility; weak sources are filtered out |
-| 4 | **Extract** | Claims are pulled from the surviving sources, each with a verbatim supporting quote |
+| 2 | **Search** | Every topic is researched **in parallel** across the web, scholarly papers, and Wikipedia |
+| 3 | **Evaluate** | Each source is scored for relevance and credibility (plus recency for time-sensitive questions); weak sources are filtered out |
+| 4 | **Extract** | Claims are pulled from the full text of surviving sources, each with a verbatim supporting quote |
 | 5 | **Verify** | Quotes are checked against the source text in code; invented ones are flagged |
 | 6 | **Cross-check** | Evidence is compared across topics to find genuine disagreements |
 | 7 | **Synthesise** | A structured report is written; any citation the model invents is removed |
 
 The result has an executive summary, key findings, detailed analysis, conflicting evidence,
 limitations, a conclusion, and sources. Every `[n]` citation shows a preview of its source on
-hover and jumps to the source card on click.
+hover and jumps to the source card on click. Alongside the report, an **evidence quality**
+panel shows how much of it is verified and what the run cost.
 
 <table>
 <tr>
@@ -78,12 +81,15 @@ You need Python 3.11+ and Node 20+.
 cd backend
 python3 -m venv .venv
 .venv/bin/pip install -e ".[dev]"
-cp .env.example .env            # add ANTHROPIC_API_KEY and TAVILY_API_KEY
+cp .env.example .env            # add ANTHROPIC_API_KEY (TAVILY_API_KEY optional)
 .venv/bin/uvicorn app.api.main:app --reload --port 8000
 ```
 
-> **No API keys?** Set `DEMO_MODE=true` in `.env`. The real graph runs against a scripted
-> model and search engine with placeholder data, and the UI shows a demo banner.
+> **Keys:** only `ANTHROPIC_API_KEY` is required. OpenAlex and Wikipedia need no key; add
+> `TAVILY_API_KEY` to include general web search.
+>
+> **No keys at all?** Set `DEMO_MODE=true`. The real graph runs against a scripted model and
+> search engine with placeholder data, and the UI shows a demo banner.
 
 **2. Frontend**
 
@@ -125,7 +131,7 @@ flowchart LR
 
     subgraph External["External services"]
         Claude["Claude API"]
-        Tavily["Tavily Search"]
+        Search["Tavily · OpenAlex · Wikipedia"]
     end
 
     UI -- "POST /api/runs" --> API
@@ -136,13 +142,13 @@ flowchart LR
     Agent -- "progress events" --> Runs
     Runs -- "append / replay" --> DB
     Agent -- "LangChain" --> Claude
-    Agent -- "LangChain" --> Tavily
+    Agent -- "parallel queries" --> Search
 ```
 
 | Layer | Responsibility | Key files |
 |-------|----------------|-----------|
 | **Agent** | Orchestration, prompts, grounding checks | `backend/app/agent/` |
-| **Services** | Thin adapters for Claude and Tavily behind small interfaces | `backend/app/services/` |
+| **Services** | Thin adapters for Claude and three search providers behind small interfaces | `backend/app/services/` |
 | **API** | Starts runs, stores events, streams them over SSE | `backend/app/api/` |
 | **Frontend** | Turns the event stream into a live timeline and report | `frontend/src/` |
 
@@ -175,9 +181,9 @@ flowchart TB
 | Node | Model call | What it produces |
 |------|------------|------------------|
 | `plan_research` | Claude | A `ResearchPlan`: topics and search queries |
-| `search_sources` | none (Tavily) | Candidate sources, de-duplicated by URL |
-| `evaluate_sources` | Claude, `effort=low` | 1–5 relevance and credibility scores; code applies thresholds |
-| `analyze_topic` | Claude | Key points, each with a quote and source numbers |
+| `search_sources` | none | Candidates from all providers, interleaved and de-duplicated by URL |
+| `evaluate_sources` | Claude, `effort=low` | 1–5 relevance and credibility scores; code applies thresholds and recency |
+| `analyze_topic` | Claude | Key points from full text, each with a quote and source numbers |
 | `finalize_topic` | none | One `TopicResult`, the subgraph's only output |
 | `detect_conflicts` | Claude | Disagreements across topics, with a verdict |
 | `synthesize_report` | Claude | The final report, citations validated |
@@ -278,6 +284,38 @@ rather than producing an ungrounded report.
 
 ---
 
+## Sources
+
+Each search query goes to every enabled provider at once. Results are interleaved so no
+single provider crowds out the others, and a provider that fails is skipped, not fatal.
+
+| Provider | What it adds | Key | Metadata used |
+|----------|--------------|-----|---------------|
+| **Tavily** (web) | News, reports, institutional pages, with full page text | `TAVILY_API_KEY` | Publication date when available |
+| **OpenAlex** (papers) | 250M+ scholarly works: peer-reviewed articles, preprints, theses | none | Venue, year, authors, citation count, abstract |
+| **Wikipedia** (reference) | Encyclopedic background and definitions | none | Article introduction |
+
+The evaluator sees this metadata, so a review in a journal with 2,000 citations is judged
+differently from an anonymous blog. Real publication years from provider metadata override
+the model's reading of the page. When the planner marks a question **time-sensitive**
+(prices, policies, fast-moving research), recency counts for 20% of a source's score.
+
+Analysis reads each surviving source's full text (capped at 6,000 characters), not the
+search snippet, and quotes are verified against that same text.
+
+---
+
+## Observability and cost
+
+| What | How |
+|------|-----|
+| **Cost per run** | A LangChain callback (`UsageTracker`) is attached to the graph's config. LangGraph carries it into every model call inside every node, so tokens are counted without touching node code. Cost is priced per model and stored with the run |
+| **Evidence quality** | Computed in code for every report: verified-quote rate, sources cited vs. reviewed, independent domains, average credibility, source mix |
+| **Tracing** | Set `LANGSMITH_TRACING=true` and `LANGSMITH_API_KEY` to trace every graph step and model call in LangSmith |
+| **Guardrails** | `MAX_CONCURRENT_RUNS`, a per-client hourly limit (`RUNS_PER_HOUR_PER_CLIENT`), and a Stop button that cancels a run mid-flight |
+
+---
+
 ## Project structure
 
 ```
@@ -293,18 +331,20 @@ ResearchGraph/
 │   │   │   ├── nodes/            # planner, researcher, evaluator, conflicts, synthesizer
 │   │   │   ├── evidence.py       # quote verification
 │   │   │   ├── citations.py      # citation numbering + sanitising
-│   │   │   └── events.py         # progress events for the UI
+│   │   │   ├── events.py         # progress events for the UI
+│   │   │   └── usage.py          # token + cost tracking callback
 │   │   ├── services/
 │   │   │   ├── llm.py            # StructuredLLM interface → Claude
-│   │   │   └── search.py         # SearchClient interface → Tavily
+│   │   │   └── search/           # SearchClient interface → Tavily, OpenAlex, Wikipedia
 │   │   ├── api/
 │   │   │   ├── main.py           # routes, SSE endpoint, app factory
-│   │   │   ├── runs.py           # background runs + live fan-out
-│   │   │   └── store.py          # SQLite runs + event log
+│   │   │   ├── runs.py           # background runs, cancellation, live fan-out
+│   │   │   ├── ratelimit.py      # per-client sliding window
+│   │   │   └── store.py          # SQLite runs + event log, migrations
 │   │   ├── demo.py               # scripted LLM/search for DEMO_MODE
 │   │   ├── config.py
 │   │   └── cli.py
-│   ├── tests/                    # 42 tests, fully offline
+│   ├── tests/                    # 62 tests, fully offline
 │   └── Dockerfile
 ├── frontend/
 │   ├── src/
@@ -313,6 +353,7 @@ ResearchGraph/
 │   │   ├── hooks/                # EventSource subscription
 │   │   └── components/           # home, research timeline, report, citations
 │   └── Dockerfile
+├── .github/workflows/ci.yml      # tests, lint, types, build, Docker images
 ├── docker-compose.yml
 └── docs/images/
 ```
@@ -327,10 +368,12 @@ ResearchGraph/
 | `GET` | `/api/runs` | Recent runs, newest first (`?limit=`, max 100) |
 | `GET` | `/api/runs/{id}` | One run, including the report once completed |
 | `GET` | `/api/runs/{id}/events` | Server-Sent Events: replays stored events, then streams live. Honours `Last-Event-ID` |
+| `POST` | `/api/runs/{id}/cancel` | Stop a run in progress (`202`; `409` if it isn't running) |
 | `DELETE` | `/api/runs/{id}` | Delete a finished run (`409` while running) |
-| `GET` | `/api/health` | `{status, configured, demo}` |
+| `GET` | `/api/health` | `{status, configured, demo, providers}` |
 
-Errors: `422` invalid question · `429` too many concurrent runs · `503` server has no API keys.
+Errors: `422` invalid question · `429` too many concurrent runs or hourly limit reached
+(with `Retry-After`) · `503` server has no API keys.
 
 ---
 
@@ -340,7 +383,10 @@ Backend settings come from environment variables or `backend/.env`.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `ANTHROPIC_API_KEY`, `TAVILY_API_KEY` | — | Required for real research |
+| `ANTHROPIC_API_KEY` | — | Required for real research |
+| `TAVILY_API_KEY` | — | Optional: enables web search |
+| `SEARCH_PROVIDERS` | `["web","academic","reference"]` | Which providers to query |
+| `OPENALEX_EMAIL` | — | Optional: OpenAlex's faster "polite pool" |
 | `CLAUDE_MODEL` | `claude-opus-5-5` | Model used at every step |
 | `CLAUDE_EFFORT` | `medium` | Default reasoning effort (source rating always uses `low`) |
 | `CLAUDE_FALLBACKS` | `true` | Server-side fallback if a request is declined |
@@ -348,6 +394,9 @@ Backend settings come from environment variables or `backend/.env`.
 | `RESULTS_PER_QUERY` | `5` | Search results per query |
 | `MAX_SOURCES_PER_TOPIC` | `6` | Sources kept after evaluation |
 | `MAX_CONCURRENT_RUNS` | `3` | Protects your API quota |
+| `RUNS_PER_HOUR_PER_CLIENT` | `20` | Per-IP limit on new runs (`0` disables) |
+| `TRUST_PROXY_HEADERS` | `false` | Read client IPs from `X-Forwarded-For` behind a proxy |
+| `LANGSMITH_TRACING`, `LANGSMITH_API_KEY` | off | Trace runs in LangSmith |
 | `DATABASE_PATH` | `researchgraph.db` | SQLite file |
 | `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed frontend origins (JSON list) |
 | `DEMO_MODE` | `false` | Placeholder data, no keys needed |
@@ -359,8 +408,8 @@ Frontend: `NEXT_PUBLIC_API_URL` (default `http://localhost:8000`).
 ## Testing
 
 ```bash
-cd backend  && .venv/bin/pytest      # 42 tests: graph, parallelism, grounding, API, SSE, persistence
-cd frontend && npx vitest run        # 12 tests: event reducer, timeline steps, citation parsing
+cd backend  && .venv/bin/pytest      # 62 tests: graph, providers, grounding, cost, API, SSE, persistence
+cd frontend && npx vitest run        # 14 tests: event reducer, timeline steps, citation parsing
 ```
 
 The backend tests need no network or API keys. The agent's two dependencies are interfaces
@@ -368,10 +417,15 @@ The backend tests need no network or API keys. The agent's two dependencies are 
 second. The tests check behaviour that's easy to get wrong:
 
 - topics really run concurrently
-- a failed branch doesn't sink the run
-- invented citations are removed
+- a failed branch or search provider doesn't sink the run
+- invented citations are removed and the rest renumbered in reading order
 - fabricated quotes are flagged
-- SSE resumes correctly from `Last-Event-ID`
+- token usage is captured from inside parallel subgraphs
+- SSE resumes from `Last-Event-ID`, and never misses a final event that races with completion
+- old databases are migrated on startup
+
+CI (`.github/workflows/ci.yml`) runs all of this, plus type checks, lint, the production
+build and both Docker images, on every push and pull request.
 
 ---
 
@@ -395,6 +449,8 @@ The SSE stream sends a keepalive every 15 s, so any proxy timeout above about 30
 | Model scores, code decides | Deterministic, unit-tested thresholds, tunable without prompt changes | Scores are coarse (1–5) |
 | Native structured outputs (`method="json_schema"`) | Typed, validated responses; current Claude models reject forced tool calls | — |
 | Per-call `effort` | Cheap, fast `low` effort for rating sources; default effort for reasoning | — |
+| Multiple search providers behind one interface | Papers and encyclopedic sources balance the open web; keyless providers mean research works with only a Claude key | More candidates to evaluate per topic |
+| Single database worker thread | SQLite writes execute in submission order, even when a run is cancelled mid-write | One query at a time (ample for this load) |
 | Append-only event log in SQLite | Replay, history, and reconnects from one mechanism; no Redis or queue | Single API instance |
 | SSE instead of WebSockets | One-way updates, plain HTTP, built-in browser reconnect | Server → client only |
 | Pure reducer on the frontend | Live view and history share one code path; trivially testable | — |
@@ -408,14 +464,13 @@ unchanged.
 
 ## Limitations
 
-- **Snippets, not full pages.** Sources are judged on the extracts Tavily returns, not on
-  full documents.
-- **Recency is recorded, not scored.** Publication year appears in labels but doesn't affect
-  ranking.
-- **One process.** Runs, live signalling, and SQLite share a single backend instance (see
-  above).
-- **No authentication.** Anyone with the URL can start runs; `MAX_CONCURRENT_RUNS` is the
-  only guard on API spend.
+- **Capped full text.** Analysis reads up to 6,000 characters per source, and only abstracts
+  for papers (OpenAlex doesn't provide full papers). Long documents are truncated.
+- **English Wikipedia only.** The reference provider queries `en.wikipedia.org`.
+- **One process.** Runs, live signalling, rate limits, and SQLite share a single backend
+  instance (see above).
+- **No user accounts.** Spend is protected by rate and concurrency limits, not by
+  authentication.
 
 ---
 
