@@ -196,6 +196,23 @@ class CitedSource(BaseModel):
     assessment: Assessment | None = None
 
 
+class ReportMetrics(BaseModel):
+    """Evidence-quality signals computed in code, not judged by the model."""
+
+    sources_reviewed: int
+    sources_cited: int
+    evidence_items: int
+    verified_quotes: int
+    distinct_domains: int
+    avg_credibility: float | None  # mean 1-5 credibility of cited sources
+    providers: dict[str, int]  # cited sources by provider
+
+    @computed_field
+    @property
+    def verified_rate(self) -> float:
+        return round(self.verified_quotes / self.evidence_items, 3) if self.evidence_items else 0.0
+
+
 class CitedPosition(BaseModel):
     stance: str
     source_ids: list[int]
@@ -211,6 +228,7 @@ class ReportConflict(BaseModel):
 class Report(ReportDraft):
     sources: list[CitedSource]
     conflicts: list[ReportConflict] = Field(default_factory=list)
+    metrics: ReportMetrics | None = None
 
     def to_markdown(self) -> str:
         findings = "\n".join(f"- {f}" for f in self.key_findings)

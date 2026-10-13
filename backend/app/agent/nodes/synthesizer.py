@@ -1,6 +1,6 @@
 from langgraph.runtime import Runtime
 
-from app.agent.citations import SourceRegistry, cited_ids, sanitize
+from app.agent.citations import SourceRegistry, first_appearance, renumber, sanitize
 from app.agent.context import AgentContext
 from app.agent.events import SNIPPET_CHARS, emit
 from app.agent.prompts import SYNTHESIZER_PROMPT
@@ -10,6 +10,7 @@ from app.agent.schemas import (
     Report,
     ReportConflict,
     ReportDraft,
+    ReportMetrics,
     TopicResult,
 )
 from app.agent.state import ResearchState
@@ -54,7 +55,9 @@ async def synthesize_report(state: ResearchState, runtime: Runtime[AgentContext]
         },
         ReportDraft,
     )
-    return {"report": build_report(draft, registry, conflicts)}
+    report = build_report(draft, registry, conflicts)
+    report.metrics = compute_metrics(state.get("topic_results", []), report)
+    return {"report": report}
 
 
 def format_evidence(results: list[TopicResult], registry: SourceRegistry) -> str:
@@ -81,7 +84,7 @@ def format_conflicts(conflicts: list[Conflict], registry: SourceRegistry) -> str
 
 
 def build_report(draft: ReportDraft, registry: SourceRegistry, conflicts: list[Conflict]) -> Report:
-    """Strip invented citations, then keep only the sources the report cites."""
+    """Strip invented citations, keep only cited sources, and number them 1..n in reading order."""
     valid = {s.id for s in registry.all()}
     clean = draft.model_copy(
         update={
@@ -89,11 +92,33 @@ def build_report(draft: ReportDraft, registry: SourceRegistry, conflicts: list[C
             "key_findings": [sanitize(f, valid) for f in draft.key_findings],
         }
     )
+    # Reading order: summary, findings, analysis, the rest, then the conflict cards.
+    texts = [
+        clean.executive_summary,
+        *clean.key_findings,
+        clean.detailed_analysis,
+        clean.conflicting_evidence,
+        clean.limitations,
+        clean.conclusion,
+    ]
+    conflict_ids = [registry.id_for(u) for c in conflicts for p in c.positions for u in p.source_urls]
+    order = list(dict.fromkeys([*first_appearance(*texts), *conflict_ids]))
+    new_id = {old: new for new, old in enumerate(order, start=1)}
+
+    renumbered = clean.model_copy(
+        update={
+            **{f: renumber(getattr(clean, f), new_id) for f in _TEXT_FIELDS},
+            "key_findings": [renumber(f, new_id) for f in clean.key_findings],
+        }
+    )
     report_conflicts = [
         ReportConflict(
             question=c.question,
             positions=[
-                CitedPosition(stance=p.stance, source_ids=[registry.id_for(u) for u in p.source_urls])
+                CitedPosition(
+                    stance=p.stance,
+                    source_ids=list(dict.fromkeys(new_id[registry.id_for(u)] for u in p.source_urls)),
+                )
                 for p in c.positions
             ],
             explanation=c.explanation,
@@ -101,10 +126,27 @@ def build_report(draft: ReportDraft, registry: SourceRegistry, conflicts: list[C
         )
         for c in conflicts
     ]
-    used = cited_ids(*(getattr(clean, f) for f in _TEXT_FIELDS), *clean.key_findings)
-    used |= {i for c in report_conflicts for p in c.positions for i in p.source_ids}
+    by_old_id = {s.id: s for s in registry.all()}
     return Report(
-        **clean.model_dump(),
-        sources=[s for s in registry.all() if s.id in used],
+        **renumbered.model_dump(),
+        sources=[by_old_id[old].model_copy(update={"id": new}) for old, new in new_id.items()],
         conflicts=report_conflicts,
+    )
+
+
+def compute_metrics(results: list[TopicResult], report: Report) -> ReportMetrics:
+    evidence = [e for r in results for e in r.evidence]
+    reviewed = {s.url for r in results for s in [*r.sources, *r.rejected_sources]}
+    credibility = [s.assessment.credibility for s in report.sources if s.assessment]
+    providers: dict[str, int] = {}
+    for source in report.sources:
+        providers[source.provider] = providers.get(source.provider, 0) + 1
+    return ReportMetrics(
+        sources_reviewed=len(reviewed),
+        sources_cited=len(report.sources),
+        evidence_items=len(evidence),
+        verified_quotes=sum(e.quote_verified for e in evidence),
+        distinct_domains=len({s.domain for s in report.sources}),
+        avg_credibility=round(sum(credibility) / len(credibility), 2) if credibility else None,
+        providers=providers,
     )

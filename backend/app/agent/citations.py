@@ -25,6 +25,11 @@ class SourceRegistry:
                 title=source.title,
                 domain=source.domain,
                 snippet=source.content[:SNIPPET_CHARS],
+                provider=source.provider,
+                published_year=source.published_year,
+                authors=source.authors,
+                venue=source.venue,
+                citations=source.citations,
                 assessment=source.assessment,
             )
         return self._by_url[source.url].id
@@ -53,3 +58,22 @@ def cited_ids(*texts: str) -> set[int]:
         for match in _MARKER.finditer(text)
         for n in match.group(1).split(",")
     }
+
+
+def first_appearance(*texts: str) -> list[int]:
+    """Citation ids in reading order, each listed once."""
+    seen: dict[int, None] = {}
+    for text in texts:
+        for match in _MARKER.finditer(text):
+            for n in match.group(1).split(","):
+                seen.setdefault(int(n), None)
+    return list(seen)
+
+
+def renumber(text: str, mapping: dict[int, int]) -> str:
+    """Rewrite citation markers through `mapping`; assumes the text is sanitized."""
+
+    def replace(match: re.Match[str]) -> str:
+        return "".join(f"[{mapping[int(n)]}]" for n in match.group(1).split(","))
+
+    return _MARKER.sub(replace, text)
